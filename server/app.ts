@@ -251,6 +251,7 @@ export function createApp(pool: Pool) {
   }));
 
   app.post("/api/profiles/:id/rotate", asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     const existing = await pool.query(
       `SELECT management_key_hash FROM profiles WHERE id = $1 AND is_test = $2`,
       [req.params.id, isTestRequest(req)],

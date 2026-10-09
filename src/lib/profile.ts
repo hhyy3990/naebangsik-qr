@@ -89,6 +89,7 @@ export const profileApi = {
   rotate: (id: string, managementKey: string) =>
     request<{ token: string }>(`/api/profiles/${encodeURIComponent(id)}/rotate`, {
       method: "POST",
+      cache: "no-store",
       headers: managementHeaders(managementKey),
     }),
 };

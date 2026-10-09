@@ -1,1 +1,2 @@
 - [Helium PostgreSQL boundary](helium-postgres.md) — preserve the existing provider, profile/QR data, permissions, and schema during deployment work.
+- [Preview browser interaction checks](qr-preview-browser-testing.md) — use isolated Chromium contexts and boolean DOM readiness checks for interactive Preview verification.

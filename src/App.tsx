@@ -605,6 +605,9 @@ export default function App() {
     setNotice(null);
     try {
       const result = await profileApi.rotate(saved.id, saved.managementKey);
+      if (!result.token || result.token === saved.token) {
+        throw new Error("서버에서 새 QR을 발급하지 않았습니다.");
+      }
       persistStoredProfile({ ...saved, token: result.token });
       setNotice({ kind: "success", message: "새 QR을 만들었어요. 이전 QR은 더 이상 사용할 수 없습니다." });
       setAutoScrollToQr(true);

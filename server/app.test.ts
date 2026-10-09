@@ -79,6 +79,7 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey })
     .send({});
   assert.equal(rotated.status, 200);
+  assert.equal(rotated.headers["cache-control"], "no-store");
   assert.notEqual(rotated.body.token, created.token);
   const oldQrUrl = buildPublicQrUrl("https://qr.example.test", created.token);
   const newQrUrl = buildPublicQrUrl("https://qr.example.test", rotated.body.token);
