@@ -37,6 +37,11 @@ type Notice = {
   message: string;
 };
 
+type PublicAppConfig = {
+  publicAppUrl: string | null;
+  isPreview: boolean;
+};
+
 const STORAGE_KEY = "myway-qr-managed-profile";
 
 const DEFAULT_PREFERENCES: ProfilePreferences = {
@@ -349,12 +354,63 @@ export default function App() {
   const [publicRetry, setPublicRetry] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [publicAppConfig, setPublicAppConfig] = useState<PublicAppConfig | null>(null);
+  const [publicAppConfigError, setPublicAppConfigError] = useState("");
+  const [qr, setQr] = useState<{ publicUrl: string; dataUrl: string } | null>(null);
+  const [qrGenerationError, setQrGenerationError] = useState("");
+  const [autoScrollToQr, setAutoScrollToQr] = useState(false);
+
+  const qrDataUrl = qr?.publicUrl === publicUrl ? qr.dataUrl : "";
+
+  useEffect(() => {
+    let current = true;
+    fetch("/api/public-config")
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null) as {
+          publicAppUrl?: unknown;
+          isPreview?: unknown;
+          error?: string;
+        } | null;
+        if (
+          !response.ok ||
+          !payload ||
+          typeof payload.isPreview !== "boolean" ||
+          (payload.publicAppUrl !== null && typeof payload.publicAppUrl !== "string")
+        ) {
+          throw new Error(payload?.error || "공개 주소를 확인하지 못했어요.");
+        }
+        return {
+          publicAppUrl: typeof payload.publicAppUrl === "string" ? payload.publicAppUrl : null,
+          isPreview: payload.isPreview,
+        };
+      })
+      .then((config) => {
+        if (current) {
+          setPublicAppConfig(config);
+          setPublicAppConfigError("");
+        }
+      })
+      .catch(() => {
+        if (!current) return;
+        if (import.meta.env.DEV) {
+          setPublicAppConfig({ publicAppUrl: null, isPreview: true });
+          setPublicAppConfigError("");
+        } else {
+          setPublicAppConfig(null);
+          setPublicAppConfigError("공개 QR 주소를 확인할 수 없어 QR을 준비하지 못했어요.");
+        }
+      });
+
+    return () => {
+      current = false;
+    };
+  }, []);
 
   const publicUrl = useMemo(() => {
-    if (!saved?.token) return "";
-    return `${window.location.origin}/?token=${encodeURIComponent(saved.token)}`;
-  }, [saved?.token]);
+    if (!saved?.token || !publicAppConfig) return "";
+    const baseUrl = publicAppConfig.publicAppUrl ?? window.location.origin;
+    return `${baseUrl}/?token=${encodeURIComponent(saved.token)}`;
+  }, [saved?.token, publicAppConfig]);
 
   useEffect(() => {
     if (!queryToken) return;
@@ -408,9 +464,12 @@ export default function App() {
   useEffect(() => {
     let current = true;
     if (!publicUrl) {
-      setQrDataUrl("");
+      setQr(null);
+      setQrGenerationError("");
       return;
     }
+    setQr(null);
+    setQrGenerationError("");
     QRCode.toDataURL(publicUrl, {
       width: 320,
       margin: 2,
@@ -418,15 +477,31 @@ export default function App() {
       color: { dark: "#20324c", light: "#fffefa" },
     })
       .then((dataUrl) => {
-        if (current) setQrDataUrl(dataUrl);
+        if (current) setQr({ publicUrl, dataUrl });
       })
       .catch(() => {
-        if (current) setQrDataUrl("");
+        if (current) setQrGenerationError("QR 이미지를 만들지 못했어요. 다시 시도해 주세요.");
       });
     return () => {
       current = false;
     };
   }, [publicUrl]);
+
+  useEffect(() => {
+    if (!autoScrollToQr || !qrDataUrl || !managed?.active) return;
+    const frame = window.requestAnimationFrame(() => {
+      const qrSection = document.getElementById("my-qr");
+      if (!qrSection) return;
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      qrSection.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
+      qrSection.focus({ preventScroll: true });
+      setAutoScrollToQr(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoScrollToQr, qrDataUrl, managed?.active]);
 
   function changePreference<K extends keyof ProfilePreferences>(key: K, value: ProfilePreferences[K]) {
     setPreferences((current) => ({ ...current, [key]: value }));

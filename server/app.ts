@@ -35,6 +35,34 @@ const validManagementKey = (provided: string | undefined, storedHash: string) =>
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 };
 
+function normalizePublicAppUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const isPreviewDomain =
+      hostname === "replit.dev" ||
+      hostname.endsWith(".replit.dev") ||
+      hostname === "repl.co" ||
+      hostname.endsWith(".repl.co");
+
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      isPreviewDomain
+    ) {
+      return null;
+    }
+
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 const fail = (res: Response, status: number, error: string) =>
   res.status(status).json({ error });
 
@@ -85,6 +113,26 @@ export function createApp(pool: Pool) {
     process.env.NODE_ENV !== "production" && req.get("X-Test-Mode") === "true";
 
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+
+  app.get("/api/public-config", (_req, res) => {
+    const isProduction = process.env.NODE_ENV === "production";
+    const configuredUrl = isProduction ? process.env.PUBLIC_APP_URL?.trim() : "";
+    res.setHeader("Cache-Control", "no-store");
+
+    if (configuredUrl) {
+      const publicAppUrl = normalizePublicAppUrl(configuredUrl);
+      if (!publicAppUrl) {
+        return fail(
+          res,
+          503,
+          "공개 주소 설정을 확인할 수 없어 QR 링크를 준비하지 못했어요.",
+        );
+      }
+      return res.json({ publicAppUrl, isPreview: false });
+    }
+
+    return res.json({ publicAppUrl: null, isPreview: !isProduction });
+  });
 
   app.post("/api/profiles", asyncRoute(async (req, res) => {
     const parsed = settingsPayloadSchema.safeParse(req.body);
