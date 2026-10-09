@@ -627,11 +627,9 @@ export default function App() {
       <main>
         <section className="app-shell intro">
           <div className="intro-copy">
-            <span className="eyebrow">내가 편한 키오스크 설정, 한 번만</span>
             <h1>한 번 정한 내 방식,<br /><em>어디서나 그대로.</em></h1>
             <p>
-              글씨 크기와 버튼, 안내 방식을 내게 맞게 정해 보세요.
-              QR 하나로 다른 장소에서도 편안한 이용을 이어갈 수 있어요.
+              글씨와 버튼, 안내 방식을 내게 맞게 정하고 QR로 다른 곳에서도 이어서 사용해요.
             </p>
             <div className="intro-actions">
               <button className="btn btn-primary" type="button" onClick={startCreating}>
@@ -649,21 +647,6 @@ export default function App() {
               가입이나 앱 설치 없이 사용할 수 있어요. 내 설정은 기기에 저장해 관리합니다.
             </div>
           </div>
-          <div className="hero-visual" aria-hidden="true">
-            <div className="visual-orbit" />
-            <div className="phone-card">
-              <div className="phone-top"><span>이음 키오스크</span><span>09:41</span></div>
-              <div className="phone-preview">
-                <b>무엇을 도와드릴까요?</b>
-                <div className="phone-line short" />
-                <div className="phone-button" />
-                <div className="phone-line" />
-                <div className="phone-line short" />
-              </div>
-            </div>
-            <span className="floating-tag tag-one"><Accessibility size={16} /> 편한 크기로</span>
-            <span className="floating-tag tag-two"><QrCode size={16} /> QR로 다시 사용</span>
-          </div>
         </section>
 
         <section className="app-shell steps" aria-label="이용 방법">
@@ -677,7 +660,7 @@ export default function App() {
           </div>
           <div className="step">
             <span className="step-number">3</span>
-            <div><strong>다른 곳에서 열기</strong><span>QR을 읽으면 설정을 다시 확인할 수 있어요.</span></div>
+            <div><strong>다른 곳에서 열기</strong><span>QR을 읽으면 내 설정을 다시 사용할 수 있어요.</span></div>
           </div>
         </section>
 
