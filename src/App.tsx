@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 import {
   Accessibility,
@@ -355,6 +355,7 @@ export default function App() {
   const [publicRetry, setPublicRetry] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
+  const rotationInProgress = useRef(false);
   const [publicAppConfig, setPublicAppConfig] = useState<PublicAppConfig | null>(null);
   const [publicAppConfigError, setPublicAppConfigError] = useState("");
   const [qr, setQr] = useState<{ publicUrl: string; dataUrl: string } | null>(null);
@@ -596,24 +597,29 @@ export default function App() {
   }
 
   async function rotateQr() {
-    if (!saved || !managed?.active) return;
+    if (!saved || !managed?.active || rotationInProgress.current) return;
     const confirmed = window.confirm(
       "새 QR을 만들면 지금 QR은 더 이상 작동하지 않아요. 새 QR을 만들까요?",
     );
     if (!confirmed) return;
+    rotationInProgress.current = true;
     setBusy(true);
     setNotice(null);
     try {
-      const result = await profileApi.rotate(saved.id, saved.managementKey);
+      const result = await profileApi.rotate(saved.id, saved.managementKey, saved.token);
       if (!result.token || result.token === saved.token) {
         throw new Error("서버에서 새 QR을 발급하지 않았습니다.");
       }
       persistStoredProfile({ ...saved, token: result.token });
       setNotice({ kind: "success", message: "새 QR을 만들었어요. 이전 QR은 더 이상 사용할 수 없습니다." });
       setAutoScrollToQr(true);
-    } catch {
+    } catch (error) {
       setNotice({ kind: "error", message: "새 QR을 만들지 못했어요. 연결을 확인하고 다시 시도해 주세요." });
+      if (error instanceof Error && error.message.includes("QR이 이미 바뀌었어요.")) {
+        setNotice({ kind: "error", message: error.message });
+      }
     } finally {
+      rotationInProgress.current = false;
       setBusy(false);
     }
   }

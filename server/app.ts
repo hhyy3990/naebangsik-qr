@@ -25,6 +25,10 @@ const tokenPayloadSchema = z.object({
   token: z.string().min(20).max(128),
 }).strict();
 
+const rotatePayloadSchema = z.object({
+  expectedToken: z.string().min(20).max(128).optional(),
+}).strict();
+
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const createToken = (prefix: string) => `${prefix}${randomBytes(32).toString("base64url")}`;
 
@@ -252,22 +256,68 @@ export function createApp(pool: Pool) {
 
   app.post("/api/profiles/:id/rotate", asyncRoute(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    const existing = await pool.query(
-      `SELECT management_key_hash FROM profiles WHERE id = $1 AND is_test = $2`,
-      [req.params.id, isTestRequest(req)],
-    );
-    const profile = existing.rows[0];
-    if (!profile) return fail(res, 404, "프로필을 찾을 수 없습니다.");
-    if (!validManagementKey(req.get("X-Profile-Management-Key"), profile.management_key_hash)) {
-      return fail(res, 403, "관리 코드가 올바르지 않습니다.");
+    const parsed = rotatePayloadSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return fail(res, 400, "QR 정보를 확인해 주세요.");
+
+    const testMode = isTestRequest(req);
+    const client = await pool.connect();
+    let transactionOpen = false;
+
+    try {
+      await client.query("BEGIN");
+      transactionOpen = true;
+
+      const existing = await client.query(
+        `SELECT management_key_hash, token_hash
+         FROM profiles
+         WHERE id = $1 AND is_test = $2
+         FOR UPDATE`,
+        [req.params.id, testMode],
+      );
+      const profile = existing.rows[0];
+      if (!profile) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+        return fail(res, 404, "프로필을 찾을 수 없습니다.");
+      }
+      if (!validManagementKey(req.get("X-Profile-Management-Key"), profile.management_key_hash)) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+        return fail(res, 403, "관리 코드가 올바르지 않습니다.");
+      }
+      if (
+        parsed.data.expectedToken &&
+        profile.token_hash !== hash(parsed.data.expectedToken)
+      ) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+        return fail(res, 409, "QR이 이미 바뀌었어요. 최신 QR을 확인한 뒤 다시 시도해 주세요.");
+      }
+
+      const token = createToken("mqr_");
+      const updated = await client.query(
+        `UPDATE profiles SET token_hash = $1, revoked_at = NULL, updated_at = now()
+         WHERE id = $2 AND is_test = $3
+         RETURNING id`,
+        [hash(token), req.params.id, testMode],
+      );
+      if (!updated.rowCount) throw new Error("QR profile was not updated");
+
+      await client.query("COMMIT");
+      transactionOpen = false;
+      return res.json({ token });
+    } catch (error) {
+      if (transactionOpen) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // Preserve the original failure; the client will release the transaction connection.
+        }
+      }
+      throw error;
+    } finally {
+      client.release();
     }
-    const token = createToken("mqr_");
-    await pool.query(
-      `UPDATE profiles SET token_hash = $1, revoked_at = NULL, updated_at = now()
-       WHERE id = $2 AND is_test = $3`,
-      [hash(token), req.params.id, isTestRequest(req)],
-    );
-    return res.json({ token });
   }));
 
   app.use("/api", (_req, res) => fail(res, 404, "요청한 기능을 찾을 수 없습니다."));
