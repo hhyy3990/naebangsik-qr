@@ -360,8 +360,6 @@ export default function App() {
   const [qrGenerationError, setQrGenerationError] = useState("");
   const [autoScrollToQr, setAutoScrollToQr] = useState(false);
 
-  const qrDataUrl = qr?.publicUrl === publicUrl ? qr.dataUrl : "";
-
   useEffect(() => {
     let current = true;
     fetch("/api/public-config")
@@ -411,6 +409,7 @@ export default function App() {
     const baseUrl = publicAppConfig.publicAppUrl ?? window.location.origin;
     return `${baseUrl}/?token=${encodeURIComponent(saved.token)}`;
   }, [saved?.token, publicAppConfig]);
+  const qrDataUrl = qr?.publicUrl === publicUrl ? qr.dataUrl : "";
 
   useEffect(() => {
     if (!queryToken) return;
@@ -537,12 +536,13 @@ export default function App() {
           updatedAt: created.createdAt,
         });
         setPreferences(created.preferences);
-        setNotice({ kind: "success", message: "프로필을 만들었어요. 아래 QR을 저장하거나 언제든 다시 불러올 수 있습니다." });
+        setNotice({ kind: "success", message: "내 QR을 만들었어요. 아래에서 QR 이미지를 저장할 수 있어요." });
+        setAutoScrollToQr(true);
       }
-    } catch (error) {
+    } catch {
       setNotice({
         kind: "error",
-        message: error instanceof Error ? error.message : "저장하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.",
+        message: "설정을 저장하지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
       });
     } finally {
       setBusy(false);
@@ -552,7 +552,7 @@ export default function App() {
   async function revokeQr() {
     if (!saved || !managed?.active) return;
     const confirmed = window.confirm(
-      "이전 QR을 폐기할까요? 이 QR을 연 사람은 더 이상 설정을 불러올 수 없습니다.",
+      "기존 QR 사용을 중지하면 더 이상 설정을 불러올 수 없어요. 이 QR의 사용을 중지할까요?",
     );
     if (!confirmed) return;
     setBusy(true);
@@ -560,12 +560,9 @@ export default function App() {
     try {
       await profileApi.revoke(saved.id, saved.managementKey);
       setManaged({ ...managed, active: false });
-      setNotice({ kind: "success", message: "이전 QR을 폐기했어요. 기존 QR 링크는 더 이상 설정을 보여주지 않습니다." });
-    } catch (error) {
-      setNotice({
-        kind: "error",
-        message: error instanceof Error ? error.message : "QR을 폐기하지 못했어요. 다시 시도해 주세요.",
-      });
+      setNotice({ kind: "success", message: "기존 QR 사용을 중지했어요. 이 QR로는 더 이상 설정을 불러올 수 없습니다." });
+    } catch {
+      setNotice({ kind: "error", message: "QR 사용을 중지하지 못했어요. 연결을 확인하고 다시 시도해 주세요." });
     } finally {
       setBusy(false);
     }
@@ -574,7 +571,7 @@ export default function App() {
   async function rotateQr() {
     if (!saved || !managed?.active) return;
     const confirmed = window.confirm(
-      "새 QR을 발급할까요? 지금까지 사용한 QR은 더 이상 작동하지 않습니다.",
+      "새 QR을 만들면 지금 QR은 더 이상 작동하지 않아요. 새 QR을 만들까요?",
     );
     if (!confirmed) return;
     setBusy(true);
@@ -582,12 +579,10 @@ export default function App() {
     try {
       const result = await profileApi.rotate(saved.id, saved.managementKey);
       persistStoredProfile({ ...saved, token: result.token });
-      setNotice({ kind: "success", message: "새 QR을 발급했어요. 이전 QR은 폐기되었고 아래에서 새 이미지를 저장할 수 있습니다." });
-    } catch (error) {
-      setNotice({
-        kind: "error",
-        message: error instanceof Error ? error.message : "새 QR을 발급하지 못했어요. 다시 시도해 주세요.",
-      });
+      setNotice({ kind: "success", message: "새 QR을 만들었어요. 이전 QR은 더 이상 사용할 수 없습니다." });
+      setAutoScrollToQr(true);
+    } catch {
+      setNotice({ kind: "error", message: "새 QR을 만들지 못했어요. 연결을 확인하고 다시 시도해 주세요." });
     } finally {
       setBusy(false);
     }
@@ -601,6 +596,17 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     link.remove();
+  }
+
+  function scrollToQr() {
+    const qrSection = document.getElementById("my-qr");
+    if (!qrSection) return;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    qrSection.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+    qrSection.focus({ preventScroll: true });
   }
 
   function startCreating() {
@@ -663,7 +669,7 @@ export default function App() {
                 <Preview preferences={publicProfile.preferences} />
               </div>
               <div className="public-privacy">
-                <strong>안심하고 확인하세요.</strong> 이 링크에는 설정을 읽는 권한만 있어요. 관리 코드나 개인 정보는 QR에 포함되지 않습니다.
+                <strong>안심하고 확인하세요.</strong> QR로 설정을 확인할 수 있지만, 설정을 바꾸거나 QR 사용을 중지할 수는 없어요.
               </div>
             </>
           )}
@@ -683,8 +689,8 @@ export default function App() {
     : isManagedActive
       ? "변경한 설정 저장하기"
       : managed && !managed.active
-        ? "새 QR 프로필 만들기"
-        : "이 설정으로 QR 프로필 만들기";
+        ? "새 QR 만들기"
+        : "내 QR 만들기";
 
   return (
     <>
@@ -708,12 +714,12 @@ export default function App() {
             </p>
             <div className="intro-actions">
               <button className="btn btn-primary" type="button" onClick={startCreating}>
-                {isManagedActive ? "내 설정 살펴보기" : saved && managed && !managed.active ? "새 프로필 만들기" : "내 설정 만들기"}
+                {isManagedActive ? "내 설정 살펴보기" : saved && managed && !managed.active ? "새 QR 만들기" : "내 설정 만들기"}
                 <ArrowRight size={18} aria-hidden="true" />
               </button>
               {saved && managed?.active && (
-                <button className="btn btn-secondary" type="button" onClick={() => document.getElementById("my-profile")?.scrollIntoView({ behavior: "smooth" })}>
-                  QR과 관리 보기 <QrCode size={17} aria-hidden="true" />
+                <button className="btn btn-secondary" type="button" onClick={scrollToQr}>
+                  내 QR 보기 <QrCode size={17} aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -756,7 +762,7 @@ export default function App() {
             )}
             {saved && managedError && (
               <div className="save-block">
-                <Feedback notice={{ kind: "error", message: `저장한 프로필을 불러오지 못했어요. ${managedError}` }} />
+                <Feedback notice={{ kind: "error", message: "이 기기에 저장된 QR 정보를 확인하지 못했어요. 다시 불러와 주세요." }} />
                 <button className="btn btn-secondary" type="button" disabled={managedLoading} onClick={() => setManagedRetry((value) => value + 1)}>
                   다시 불러오기 <RotateCw size={17} aria-hidden="true" />
                 </button>
@@ -768,9 +774,18 @@ export default function App() {
               disabled={shouldDisableForm}
             />
             <div className="save-block">
-              {notice && <Feedback notice={notice} />}
+              {notice && (
+                <div className="notice-actions">
+                  <Feedback notice={notice} />
+                  {notice.kind === "success" && managed?.active && (
+                    <button className="btn btn-secondary qr-jump" type="button" onClick={scrollToQr}>
+                      내 QR 보러가기 <QrCode size={17} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              )}
               {saved && managed && !managed.active && (
-                <Feedback notice={{ kind: "info", message: "이 프로필의 QR은 폐기되었습니다. 저장하면 새 QR 프로필을 만들 수 있어요." }} />
+                <Feedback notice={{ kind: "info", message: "기존 QR 사용을 중지했어요. 저장하면 새 QR을 만들 수 있어요." }} />
               )}
               <button className="btn btn-primary" type="button" disabled={shouldDisableForm} onClick={savePreferences}>
                 {buttonLabel}
@@ -796,55 +811,76 @@ export default function App() {
           <section className="app-shell management-area" id="my-profile" aria-labelledby="manage-title">
             <div className="management-card">
               <div>
-                <span className="eyebrow">이 기기에 저장된 프로필</span>
-                <h2 id="manage-title">내 QR과 관리</h2>
+                <h2 id="manage-title">내 QR 관리하기</h2>
                 <p>
-                  이 기기에 프로필 관리 정보가 저장되어 있어요. QR은 설정을 읽는 용도이며, 변경·폐기에는 관리 코드가 필요합니다.
+                  {managed.active
+                    ? "내 QR을 만들었어요! 이 QR을 사용하면 다른 키오스크에서도 내가 고른 설정을 불러올 수 있어요."
+                    : "기존 QR 사용을 중지했어요. 새 QR을 만들면 다른 곳에서 설정을 다시 불러올 수 있어요."}
                 </p>
                 <div className={`management-status ${managed.active ? "" : "inactive"}`}>
-                  {managed.active ? "현재 QR 사용 가능" : "QR 폐기됨"}
+                  {managed.active ? "QR 사용 가능" : "QR 사용 중지됨"}
                 </div>
-                <div className="key-callout">
-                  <strong>관리 코드는 QR 토큰과 달라요.</strong><br />
-                  QR을 다른 사람과 공유해도 관리 권한은 전달되지 않습니다. 관리 코드는 이 기기에만 저장되며, 다른 기기에서는 프로필을 관리할 수 없어요.
-                </div>
+                <p>지금 사용 중인 기기에서 설정을 바꾸거나 새 QR을 만들 수 있어요.</p>
+                <p>
+                  {managed.active
+                    ? "다른 기기에서는 QR로 설정을 확인할 수 있지만, 설정을 바꾸거나 QR을 없앨 수는 없어요."
+                    : "새 QR을 만들기 전에는 다른 기기에서 설정을 불러올 수 없어요."}
+                </p>
+                <details className="security-details">
+                  <summary>자세히 알아보기</summary>
+                  <p>
+                    QR을 공유해도 설정 확인만 할 수 있어요. 설정 변경, 새 QR 만들기, 기존 QR 사용 중지는 QR을 만든 기기에서만 할 수 있습니다.
+                  </p>
+                </details>
               </div>
               <div className="management-actions">
                 {managed.active && (
                   <>
                     <button className="btn btn-secondary" type="button" disabled={busy} onClick={rotateQr}>
-                      새 QR로 재발급 <RotateCw size={17} aria-hidden="true" />
+                      새 QR 만들기 <RotateCw size={17} aria-hidden="true" />
                     </button>
                     <button className="btn btn-danger" type="button" disabled={busy} onClick={revokeQr}>
-                      이전 QR 폐기 <FileKey2 size={17} aria-hidden="true" />
+                      기존 QR 사용 중지 <FileKey2 size={17} aria-hidden="true" />
                     </button>
                   </>
                 )}
                 {!managed.active && (
                   <button className="btn btn-primary" type="button" onClick={startCreating}>
-                    새 프로필 만들기 <ArrowRight size={17} aria-hidden="true" />
+                    새 QR 만들기 <ArrowRight size={17} aria-hidden="true" />
                   </button>
                 )}
               </div>
             </div>
             {managed.active && (
-              <div className="qr-card">
-                <div className="qr-image">
-                  {qrDataUrl ? (
-                    <img src={qrDataUrl} alt="현재 설정을 여는 QR 코드" />
-                  ) : (
-                    <div className="qr-placeholder" role="status">QR을 만드는 중…</div>
-                  )}
-                </div>
-                <div>
-                  <h3>현재 사용할 QR</h3>
-                  <p>이 QR을 읽으면 현재 설정만 확인할 수 있어요. 기기에서 설정을 바꾸려면 관리 화면으로 돌아오세요.</p>
-                  <span className="qr-url">{publicUrl}</span>
+              <section className="qr-card" id="my-qr" tabIndex={-1} aria-labelledby="qr-title">
+                <div className="qr-visual">
+                  <div className="qr-image">
+                    {qrDataUrl ? (
+                      <img src={qrDataUrl} alt="내 설정을 불러오는 QR 코드" />
+                    ) : (
+                      <div className="qr-placeholder" role="status">
+                        {publicAppConfigError || qrGenerationError || (publicAppConfig ? "QR을 준비하는 중…" : "주소를 확인하는 중…")}
+                      </div>
+                    )}
+                  </div>
                   <button className="btn btn-secondary qr-download" type="button" disabled={!qrDataUrl} onClick={downloadQr}>
                     QR 이미지 저장 <ArrowDownToLine size={17} aria-hidden="true" />
                   </button>
                 </div>
-              </div>
+                <div className="qr-info">
+                  <h3 id="qr-title">현재 사용 중인 QR</h3>
+                  <p>이 QR을 읽으면 다른 키오스크에서도 내가 고른 설정을 불러올 수 있어요.</p>
+                  {publicUrl && <span className="qr-url">{publicUrl}</span>}
+                  {publicAppConfig?.isPreview && (
+                    <p className="qr-preview-warning" role="note">
+                      개발 Preview QR은 Replit 로그인 화면이 보이거나 개발 데이터가 공개 환경에 없어 열리지 않을 수 있어요. 공개 배포 후 공개 사이트에서 새 QR을 만들어 주세요.
+                    </p>
+                  )}
+                  <p className="qr-stale-note">
+                    이미 저장하거나 인쇄한 QR 이미지는 주소가 바뀌어도 자동으로 바뀌지 않아요. 공개 배포 후에는 새 QR 이미지를 다시 저장해 주세요.
+                  </p>
+                </div>
+              </section>
             )}
           </section>
         )}
@@ -852,8 +888,8 @@ export default function App() {
           <section className="app-shell management-area">
             <div className="empty-card">
               <span className="empty-icon"><KeyRound size={23} aria-hidden="true" /></span>
-              <h2>관리 정보를 다시 확인해 주세요</h2>
-              <p>현재 서버에서 프로필 상태를 확인하지 못했습니다. 네트워크를 확인하고 다시 불러오면 이어서 관리할 수 있어요.</p>
+              <h2>QR 정보를 다시 확인해 주세요</h2>
+              <p>이 기기에 저장된 QR 정보를 확인하지 못했어요. 네트워크를 확인하고 다시 불러와 주세요.</p>
               <button className="btn btn-secondary" type="button" onClick={() => setManagedRetry((value) => value + 1)}>
                 다시 불러오기 <RotateCw size={17} aria-hidden="true" />
               </button>

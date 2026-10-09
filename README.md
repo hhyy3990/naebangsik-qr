@@ -12,6 +12,14 @@ npm run dev
 
 허용할 다른 웹 서비스의 주소가 있으면 `ALLOWED_ORIGINS` 환경 변수에 쉼표로 구분해 등록합니다. 같은 주소에서 실행되는 웹 화면 요청은 기본 허용됩니다.
 
+## QR 공개 링크와 배포
+
+Preview에서 만드는 QR은 현재 Preview 주소를 사용하며, 외부 휴대폰에서는 Replit 로그인 화면이 나오거나 Preview 데이터가 없어 열리지 않을 수 있습니다. 공개 배포 후에는 Publishing 설정에서 앱 접근 권한을 `Public`으로 선택해야 누구나 QR 링크를 열 수 있습니다.
+
+공개 배포의 Production 환경 변수에 `PUBLIC_APP_URL`을 설정하면 QR 링크가 해당 HTTPS 주소를 사용합니다. 값은 `https://앱의-공개-주소`처럼 사이트의 주소만 입력하고, 경로나 쿼리는 넣지 않습니다. 이 변수는 Production에서만 적용됩니다. 설정하지 않으면 공개 사이트가 접속된 주소를 사용합니다.
+
+Preview와 Production은 별도의 데이터베이스를 사용합니다. Preview에서 만든 프로필은 공개 배포 데이터베이스에서 자동으로 조회되지 않으므로, 공개 사이트에서 새 QR을 만들어 사용하세요. 주소가 바뀌어도 이미 저장하거나 인쇄한 QR 이미지는 자동으로 바뀌지 않습니다. 공개 배포 후 새 QR 이미지를 저장해 교체해야 합니다.
+
 ## 확인 명령
 
 ```sh
@@ -26,6 +34,7 @@ API 테스트는 실제 사용자 프로필과 구분되는 `is_test` 데이터�
 
 모든 접근성 설정 응답에는 `schemaVersion: 1`이 포함됩니다.
 
+- `GET /api/public-config` — Preview 또는 공개 배포의 QR 주소 기준 확인
 - `POST /api/profiles` — 프로필과 QR 조회 토큰, 별도 관리 코드를 생성
 - `POST /api/profiles/resolve` — QR 토큰으로 공개 설정만 조회
 - `GET /api/profiles/:id/manage` — 관리 코드로 본인 설정 조회

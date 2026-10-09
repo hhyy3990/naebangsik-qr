@@ -102,3 +102,31 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .send({ token: rotated.body.token });
   assert.equal(revokedToken.status, 404);
 });
+
+test("public QR configuration separates Preview from a configured published URL", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousPublicAppUrl = process.env.PUBLIC_APP_URL;
+
+  try {
+    process.env.NODE_ENV = "test";
+    process.env.PUBLIC_APP_URL = "https://ignored.example";
+    const preview = await request(app).get("/api/public-config");
+    assert.equal(preview.status, 200);
+    assert.deepEqual(preview.body, { publicAppUrl: null, isPreview: true });
+
+    process.env.NODE_ENV = "production";
+    process.env.PUBLIC_APP_URL = "https://qr.example.com/";
+    const published = await request(app).get("/api/public-config");
+    assert.equal(published.status, 200);
+    assert.deepEqual(published.body, { publicAppUrl: "https://qr.example.com", isPreview: false });
+
+    process.env.PUBLIC_APP_URL = "https://preview.replit.dev";
+    const previewDomainInProduction = await request(app).get("/api/public-config");
+    assert.equal(previewDomainInProduction.status, 503);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousPublicAppUrl === undefined) delete process.env.PUBLIC_APP_URL;
+    else process.env.PUBLIC_APP_URL = previousPublicAppUrl;
+  }
+});
