@@ -167,6 +167,7 @@ export function createApp(pool: Pool) {
   }));
 
   app.post("/api/profiles/resolve", asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     const parsed = tokenPayloadSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, "QR 코드 정보를 확인할 수 없습니다.");
     const result = await pool.query(

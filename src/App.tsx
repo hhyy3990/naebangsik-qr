@@ -20,6 +20,7 @@ import {
   Volume2,
 } from "lucide-react";
 import {
+  buildPublicQrUrl,
   profileApi,
   type ManagedProfile,
   type ProfilePreferences,
@@ -407,7 +408,7 @@ export default function App() {
   const publicUrl = useMemo(() => {
     if (!saved?.token || !publicAppConfig) return "";
     const baseUrl = publicAppConfig.publicAppUrl ?? window.location.origin;
-    return `${baseUrl}/?token=${encodeURIComponent(saved.token)}`;
+    return buildPublicQrUrl(baseUrl, saved.token);
   }, [saved?.token, publicAppConfig]);
   const qrDataUrl = qr?.publicUrl === publicUrl ? qr.dataUrl : "";
 
@@ -432,6 +433,32 @@ export default function App() {
       current = false;
     };
   }, [queryToken, publicRetry]);
+
+  useEffect(() => {
+    if (!queryToken) return;
+    let wasHidden = document.visibilityState === "hidden";
+    let lastRefreshAt = 0;
+    const revalidate = () => {
+      const now = Date.now();
+      if (now - lastRefreshAt < 750) return;
+      lastRefreshAt = now;
+      setPublicRetry((retry) => retry + 1);
+    };
+    const onVisibilityChange = () => {
+      const isHidden = document.visibilityState === "hidden";
+      if (wasHidden && !isHidden) revalidate();
+      wasHidden = isHidden;
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) revalidate();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [queryToken]);
 
   useEffect(() => {
     if (queryToken || !saved) {

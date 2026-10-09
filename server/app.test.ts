@@ -1,9 +1,10 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "./app";
-import { PROFILE_SCHEMA_VERSION } from "../src/lib/profile";
+import { buildPublicQrUrl, PROFILE_SCHEMA_VERSION } from "../src/lib/profile";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL 환경 변수가 필요합니다. API 테스트는 PostgreSQL을 사용합니다.");
@@ -12,6 +13,7 @@ if (!process.env.DATABASE_URL) {
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const app = createApp(pool);
 const testHeader = { "X-Test-Mode": "true" };
+const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 const testProfileIds: string[] = [];
 const preferences = {
   textSize: "large",
@@ -55,6 +57,7 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .set(testHeader)
     .send({ token: created.token });
   assert.equal(resolved.status, 200);
+  assert.equal(resolved.headers["cache-control"], "no-store");
   assert.deepEqual(resolved.body.preferences, preferences);
 
   const tokenCannotManage = await request(app)
@@ -77,18 +80,34 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .send({});
   assert.equal(rotated.status, 200);
   assert.notEqual(rotated.body.token, created.token);
+  const oldQrUrl = buildPublicQrUrl("https://qr.example.test", created.token);
+  const newQrUrl = buildPublicQrUrl("https://qr.example.test", rotated.body.token);
+  assert.notEqual(newQrUrl, oldQrUrl);
+  assert.notEqual(
+    new URL(newQrUrl).searchParams.get("token"),
+    new URL(oldQrUrl).searchParams.get("token"),
+  );
+  const storedTokenHash = await pool.query<{ token_hash: string }>(
+    "SELECT token_hash FROM profiles WHERE id = $1 AND is_test = true",
+    [created.id],
+  );
+  assert.equal(storedTokenHash.rowCount, 1);
+  assert.equal(storedTokenHash.rows[0].token_hash, hashToken(rotated.body.token));
+  assert.notEqual(storedTokenHash.rows[0].token_hash, hashToken(created.token));
 
   const oldToken = await request(app)
     .post("/api/profiles/resolve")
     .set(testHeader)
     .send({ token: created.token });
   assert.equal(oldToken.status, 404);
+  assert.equal(oldToken.headers["cache-control"], "no-store");
 
   const newToken = await request(app)
     .post("/api/profiles/resolve")
     .set(testHeader)
     .send({ token: rotated.body.token });
   assert.equal(newToken.status, 200);
+  assert.equal(newToken.headers["cache-control"], "no-store");
 
   const revoked = await request(app)
     .post(`/api/profiles/${created.id}/revoke`)
@@ -101,6 +120,7 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .set(testHeader)
     .send({ token: rotated.body.token });
   assert.equal(revokedToken.status, 404);
+  assert.equal(revokedToken.headers["cache-control"], "no-store");
 });
 
 test("public QR configuration separates Preview from a configured published URL", async () => {

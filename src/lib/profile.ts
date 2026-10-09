@@ -32,6 +32,9 @@ export type ManagedProfile = ResolvedProfile & {
   active: boolean;
 };
 
+export const buildPublicQrUrl = (baseUrl: string, token: string) =>
+  `${baseUrl.replace(/\/+$/, "")}/?token=${encodeURIComponent(token)}`;
+
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
     ...init,
@@ -61,6 +64,7 @@ export const profileApi = {
   resolve: (token: string) =>
     request<ResolvedProfile>("/api/profiles/resolve", {
       method: "POST",
+      cache: "no-store",
       body: JSON.stringify({ token }),
     }),
 
