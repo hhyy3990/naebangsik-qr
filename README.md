@@ -32,7 +32,7 @@ API 테스트는 실제 사용자 프로필과 구분되는 `is_test` 데이터�
 
 ## API
 
-모든 접근성 설정 응답에는 `schemaVersion: 1`이 포함됩니다.
+모든 신규 접근성 설정 요청과 프로필에는 `schemaVersion: 2`가 포함됩니다. 프로필 설정에서 화면 단순화 항목은 제거되었습니다.
 
 - `GET /api/public-config` — Preview 또는 공개 배포의 QR 주소 기준 확인
 - `POST /api/profiles` — 프로필과 QR 조회 토큰, 별도 관리 코드를 생성

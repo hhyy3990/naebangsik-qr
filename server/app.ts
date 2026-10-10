@@ -9,16 +9,17 @@ const preferencesSchema = z.object({
   buttonSize: z.enum(["standard", "large"]),
   contrast: z.enum(["standard", "high"]),
   easyLanguage: z.boolean(),
-  simplifiedLayout: z.boolean(),
   bottomControls: z.boolean(),
   smartGuide: z.boolean(),
   guideDelaySeconds: z.union([z.literal(10), z.literal(15), z.literal(20)]),
   voiceGuidance: z.boolean(),
-}).strict();
+});
+
+const requestPreferencesSchema = preferencesSchema.strict();
 
 const settingsPayloadSchema = z.object({
   schemaVersion: z.literal(PROFILE_SCHEMA_VERSION),
-  preferences: preferencesSchema,
+  preferences: requestPreferencesSchema,
 }).strict();
 
 const tokenPayloadSchema = z.object({
@@ -31,6 +32,7 @@ const rotatePayloadSchema = z.object({
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const createToken = (prefix: string) => `${prefix}${randomBytes(32).toString("base64url")}`;
+const storedPreferences = (value: unknown) => preferencesSchema.parse(value);
 
 const validManagementKey = (provided: string | undefined, storedHash: string) => {
   if (!provided) return false;
@@ -183,7 +185,7 @@ export function createApp(pool: Pool) {
     if (!result.rowCount) return fail(res, 404, "사용할 수 없는 QR 코드입니다.");
     return res.json({
       schemaVersion: result.rows[0].schema_version,
-      preferences: result.rows[0].preferences,
+      preferences: storedPreferences(result.rows[0].preferences),
       updatedAt: new Date(result.rows[0].updated_at).toISOString(),
     });
   }));
@@ -202,7 +204,7 @@ export function createApp(pool: Pool) {
     return res.json({
       id: profile.id,
       schemaVersion: profile.schema_version,
-      preferences: profile.preferences,
+      preferences: storedPreferences(profile.preferences),
       active: !profile.revoked_at,
       updatedAt: new Date(profile.updated_at).toISOString(),
     });
@@ -221,16 +223,16 @@ export function createApp(pool: Pool) {
       return fail(res, 403, "관리 코드가 올바르지 않습니다.");
     }
     const result = await pool.query(
-      `UPDATE profiles SET preferences = $1::jsonb, updated_at = now()
+      `UPDATE profiles SET preferences = $1::jsonb, schema_version = $4, updated_at = now()
        WHERE id = $2 AND is_test = $3
        RETURNING id, schema_version, preferences, updated_at, revoked_at`,
-      [JSON.stringify(parsed.data.preferences), req.params.id, isTestRequest(req)],
+      [JSON.stringify(parsed.data.preferences), req.params.id, isTestRequest(req), PROFILE_SCHEMA_VERSION],
     );
     const updated = result.rows[0];
     return res.json({
       id: updated.id,
       schemaVersion: updated.schema_version,
-      preferences: updated.preferences,
+      preferences: storedPreferences(updated.preferences),
       active: !updated.revoked_at,
       updatedAt: new Date(updated.updated_at).toISOString(),
     });

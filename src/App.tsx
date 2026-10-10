@@ -50,7 +50,6 @@ const DEFAULT_PREFERENCES: ProfilePreferences = {
   buttonSize: "standard",
   contrast: "standard",
   easyLanguage: false,
-  simplifiedLayout: false,
   bottomControls: false,
   smartGuide: false,
   guideDelaySeconds: 15,
@@ -215,12 +214,6 @@ function SettingsForm({
         />
       </div>
       <ToggleRow
-        title="화면 구성을 단순하게"
-        description="필요한 정보와 선택지만 간결하게 보여요."
-        checked={preferences.simplifiedLayout}
-        onChange={(value) => onPreferenceChange("simplifiedLayout", value)}
-      />
-      <ToggleRow
         title="하단 조작 모드"
         description="자주 쓰는 버튼을 화면 아래쪽에 모아요."
         checked={preferences.bottomControls}
@@ -282,9 +275,7 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
   ]
     .filter(Boolean)
     .join(" ");
-  const options = preferences.simplifiedLayout
-    ? ["주문 시작", "직원 도움 요청"]
-    : ["메뉴 보기", "주문 조회", "직원 도움 요청"];
+  const options = ["메뉴 보기", "주문 조회", "직원 도움 요청"];
   return (
     <aside className="panel preview-panel" aria-label="설정 미리보기">
       <div className="preview-head">
@@ -952,7 +943,6 @@ function PreferenceSummary({ preferences }: { preferences: ProfilePreferences })
     { label: "버튼 크기", value: preferences.buttonSize === "large" ? "크게" : "기본", icon: Accessibility },
     { label: "화면 대비", value: preferences.contrast === "high" ? "고대비" : "기본", icon: Monitor },
     { label: "쉬운 말", value: preferences.easyLanguage ? "사용" : "사용 안 함", icon: Check },
-    { label: "화면 구성 단순화", value: preferences.simplifiedLayout ? "사용" : "사용 안 함", icon: Sparkles },
     { label: "하단 조작 모드", value: preferences.bottomControls ? "사용" : "사용 안 함", icon: ArrowDownToLine },
     { label: "스마트 길잡이", value: preferences.smartGuide ? `사용 · ${preferences.guideDelaySeconds}초 후` : "사용 안 함", icon: CircleHelp },
     { label: "음성 안내", value: preferences.voiceGuidance ? "사용" : "사용 안 함", icon: Volume2 },

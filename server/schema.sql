@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY,
-  schema_version SMALLINT NOT NULL DEFAULT 1 CHECK (schema_version = 1),
+  schema_version SMALLINT NOT NULL DEFAULT 2 CHECK (schema_version IN (1, 2)),
   preferences JSONB NOT NULL,
   token_hash TEXT UNIQUE,
   management_key_hash TEXT NOT NULL,

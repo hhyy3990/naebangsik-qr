@@ -20,7 +20,6 @@ const preferences = {
   buttonSize: "large",
   contrast: "high",
   easyLanguage: true,
-  simplifiedLayout: true,
   bottomControls: false,
   smartGuide: true,
   guideDelaySeconds: 15,
@@ -35,6 +34,15 @@ after(async () => {
 });
 
 test("profile API creates, resolves, edits, rotates, and revokes QR tokens", async () => {
+  const removedSettingRequest = await request(app)
+    .post("/api/profiles")
+    .set(testHeader)
+    .send({
+      schemaVersion: PROFILE_SCHEMA_VERSION,
+      preferences: { ...preferences, simplifiedLayout: true },
+    });
+  assert.equal(removedSettingRequest.status, 400);
+
   const createdResponse = await request(app)
     .post("/api/profiles")
     .set(testHeader)
@@ -45,12 +53,19 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     id: string;
     token: string;
     managementKey: string;
+    schemaVersion: number;
     preferences: typeof preferences;
   };
   testProfileIds.push(created.id);
+  assert.equal(created.schemaVersion, PROFILE_SCHEMA_VERSION);
   assert.match(created.token, /^mqr_/);
   assert.match(created.managementKey, /^mqm_/);
   assert.deepEqual(created.preferences, preferences);
+
+  await pool.query(
+    "UPDATE profiles SET preferences = preferences || $1::jsonb WHERE id = $2 AND is_test = true",
+    [JSON.stringify({ simplifiedLayout: true }), created.id],
+  );
 
   const resolved = await request(app)
     .post("/api/profiles/resolve")
@@ -59,6 +74,14 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
   assert.equal(resolved.status, 200);
   assert.equal(resolved.headers["cache-control"], "no-store");
   assert.deepEqual(resolved.body.preferences, preferences);
+  assert.equal("simplifiedLayout" in resolved.body.preferences, false);
+
+  const managedLegacy = await request(app)
+    .get(`/api/profiles/${created.id}/manage`)
+    .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey });
+  assert.equal(managedLegacy.status, 200);
+  assert.deepEqual(managedLegacy.body.preferences, preferences);
+  assert.equal("simplifiedLayout" in managedLegacy.body.preferences, false);
 
   const tokenCannotManage = await request(app)
     .patch(`/api/profiles/${created.id}`)
@@ -170,6 +193,7 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey })
     .send({ schemaVersion: PROFILE_SCHEMA_VERSION, preferences: changedPreferences });
   assert.equal(updated.status, 200);
+  assert.equal(updated.body.schemaVersion, PROFILE_SCHEMA_VERSION);
   assert.deepEqual(updated.body.preferences, changedPreferences);
   const tokenHashAfterSettingsUpdate = await pool.query<{ token_hash: string }>(
     "SELECT token_hash FROM profiles WHERE id = $1 AND is_test = true",
