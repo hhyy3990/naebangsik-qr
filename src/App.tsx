@@ -50,7 +50,7 @@ const DEFAULT_PREFERENCES: ProfilePreferences = {
   buttonSize: "standard",
   contrast: "standard",
   easyLanguage: false,
-  bottomControls: false,
+  viewportMode: null,
   smartGuide: false,
   guideDelaySeconds: 15,
   voiceGuidance: false,
@@ -213,12 +213,37 @@ function SettingsForm({
           onChange={(value) => onPreferenceChange("buttonSize", value)}
         />
       </div>
-      <ToggleRow
-        title="하단 조작 모드"
-        description="자주 쓰는 버튼을 화면 아래쪽에 모아요."
-        checked={preferences.bottomControls}
-        onChange={(value) => onPreferenceChange("bottomControls", value)}
-      />
+      <div className="setting-row viewport-mode-row">
+        <div className="setting-info">
+          <strong>하단 조작 모드</strong>
+          <span>화면 위쪽에 손이 닿기 어려운 경우, 아래쪽에서 화면을 조작할 수 있어요. 화면을 축소하지 않고 사용할 영역 안에서 스크롤합니다.</span>
+        </div>
+        <div className="viewport-mode-options" role="group" aria-label="하단 조작 모드">
+          {[
+            { label: "사용하지 않음", value: null as ProfilePreferences["viewportMode"] },
+            { label: "아래쪽 60% 사용", value: { mode: "bottom", heightPercent: 60 } as const },
+            { label: "아래쪽 70% 사용", value: { mode: "bottom", heightPercent: 70 } as const },
+            { label: "아래쪽 80% 사용", value: { mode: "bottom", heightPercent: 80 } as const },
+          ].map((option) => {
+            const selected =
+              option.value === null
+                ? preferences.viewportMode === null
+                : preferences.viewportMode?.mode === option.value.mode &&
+                  preferences.viewportMode.heightPercent === option.value.heightPercent;
+            return (
+              <button
+                className="viewport-mode-option"
+                type="button"
+                key={option.label}
+                aria-pressed={selected}
+                onClick={() => onPreferenceChange("viewportMode", option.value)}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="section-label">
         <Sparkles size={17} aria-hidden="true" />
@@ -265,13 +290,13 @@ function SettingsForm({
 }
 
 function Preview({ preferences }: { preferences: ProfilePreferences }) {
+  const viewportPercent = preferences.viewportMode?.heightPercent ?? 100;
   const classNames = [
     "kiosk-screen",
     `text-${preferences.textSize}`,
     `button-${preferences.buttonSize}`,
     `contrast-${preferences.contrast}`,
     preferences.easyLanguage ? "easy-language" : "",
-    preferences.bottomControls ? "bottom-controls" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -283,37 +308,48 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
         <span className="preview-live">바로 반영</span>
       </div>
       <div className="preview-stage">
-        <div className={classNames}>
-          <div className="kiosk-inner">
-            <div className="kiosk-header">
-              <span>이음 키오스크</span>
-              <span>{preferences.voiceGuidance ? "음성 안내 켜짐" : "화면 안내"}</span>
-            </div>
-            <h4>무엇을 도와드릴까요?</h4>
-            <p>원하는 항목을 선택해 주세요.</p>
-            <div className="kiosk-options">
-              {options.map((option) => (
-                <div className="kiosk-option" key={option}>
-                  <span>{option}</span>
-                  <ArrowRight size={15} aria-hidden="true" />
-                </div>
-              ))}
-            </div>
-            {preferences.smartGuide && (
-              <p className="guide-preview-message">
-                {preferences.guideDelaySeconds}초 동안 기다리면 길잡이가 안내해요.
-              </p>
+          <div className={classNames}>
+            {viewportPercent < 100 && (
+              <div
+                className="kiosk-unused-region"
+                style={{ height: `${100 - viewportPercent}%` }}
+                aria-hidden="true"
+              >
+                사용하지 않는 위쪽 영역
+              </div>
             )}
-          </div>
-          {preferences.bottomControls && (
-            <div className="kiosk-footer">
-              <span>이전</span>
-              <span>다음</span>
+            <div className="kiosk-usable-region" style={{ height: `${viewportPercent}%` }}>
+              <div className="kiosk-inner">
+                <div className="kiosk-header">
+                  <span>이음 키오스크</span>
+                  <span>{preferences.voiceGuidance ? "음성 안내 켜짐" : "화면 안내"}</span>
+                </div>
+                <h4>무엇을 도와드릴까요?</h4>
+                <p>원하는 항목을 선택해 주세요.</p>
+                <div className="kiosk-options">
+                  {options.map((option) => (
+                    <div className="kiosk-option" key={option}>
+                      <span>{option}</span>
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </div>
+                  ))}
+                </div>
+                {preferences.smartGuide && (
+                  <p className="guide-preview-message">
+                    {preferences.guideDelaySeconds}초 동안 기다리면 길잡이가 안내해요.
+                  </p>
+                )}
+                <div className="kiosk-footer">
+                  <span>이전</span>
+                  <span>다음</span>
+                </div>
+              </div>
             </div>
-          )}
         </div>
         <p className="preview-caption">
-          선택한 설정이 어떻게 보이는지 미리 확인할 수 있어요. 실제 키오스크 적용 화면과 다를 수 있습니다.
+          {viewportPercent === 100
+            ? "전체 높이를 사용하는 미리보기예요."
+            : `아래쪽 ${viewportPercent}% 영역 안에서 조작하고 스크롤하는 모습을 표시해요. 실제 키오스크 적용 화면과 다를 수 있습니다.`}
         </p>
       </div>
     </aside>
@@ -943,7 +979,7 @@ function PreferenceSummary({ preferences }: { preferences: ProfilePreferences })
     { label: "버튼 크기", value: preferences.buttonSize === "large" ? "크게" : "기본", icon: Accessibility },
     { label: "화면 대비", value: preferences.contrast === "high" ? "고대비" : "기본", icon: Monitor },
     { label: "쉬운 말", value: preferences.easyLanguage ? "사용" : "사용 안 함", icon: Check },
-    { label: "하단 조작 모드", value: preferences.bottomControls ? "사용" : "사용 안 함", icon: ArrowDownToLine },
+    { label: "하단 조작 모드", value: preferences.viewportMode ? `아래쪽 ${preferences.viewportMode.heightPercent}%` : "사용하지 않음", icon: ArrowDownToLine },
     { label: "스마트 길잡이", value: preferences.smartGuide ? `사용 · ${preferences.guideDelaySeconds}초 후` : "사용 안 함", icon: CircleHelp },
     { label: "음성 안내", value: preferences.voiceGuidance ? "사용" : "사용 안 함", icon: Volume2 },
   ];

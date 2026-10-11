@@ -20,7 +20,7 @@ const preferences = {
   buttonSize: "large",
   contrast: "high",
   easyLanguage: true,
-  bottomControls: false,
+  viewportMode: { mode: "bottom", heightPercent: 70 },
   smartGuide: true,
   guideDelaySeconds: 15,
   voiceGuidance: false,
@@ -33,7 +33,15 @@ after(async () => {
   await pool.end();
 });
 
-test("profile API creates, resolves, edits, rotates, and revokes QR tokens", async () => {
+test("profile API creates v3 profiles and normalizes legacy settings without losing QR management", async () => {
+  const oldFieldRequest = await request(app)
+    .post("/api/profiles")
+    .set(testHeader)
+    .send({
+      schemaVersion: PROFILE_SCHEMA_VERSION,
+      preferences: { ...preferences, bottomControls: true },
+    });
+  assert.equal(oldFieldRequest.status, 400);
   const removedSettingRequest = await request(app)
     .post("/api/profiles")
     .set(testHeader)
@@ -42,6 +50,22 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
       preferences: { ...preferences, simplifiedLayout: true },
     });
   assert.equal(removedSettingRequest.status, 400);
+
+  for (const invalidMode of [
+    { mode: "bottom", heightPercent: 59 },
+    { mode: "bottom", heightPercent: 65 },
+    { mode: "bottom", heightPercent: 90 },
+    { mode: "top", heightPercent: 70 },
+  ]) {
+    const invalidRequest = await request(app)
+      .post("/api/profiles")
+      .set(testHeader)
+      .send({
+        schemaVersion: PROFILE_SCHEMA_VERSION,
+        preferences: { ...preferences, viewportMode: invalidMode },
+      });
+    assert.equal(invalidRequest.status, 400);
+  }
 
   const createdResponse = await request(app)
     .post("/api/profiles")
@@ -63,8 +87,11 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
   assert.deepEqual(created.preferences, preferences);
 
   await pool.query(
-    "UPDATE profiles SET preferences = preferences || $1::jsonb WHERE id = $2 AND is_test = true",
-    [JSON.stringify({ simplifiedLayout: true }), created.id],
+    `UPDATE profiles
+     SET schema_version = 2,
+         preferences = (preferences - 'viewportMode') || $1::jsonb
+     WHERE id = $2 AND is_test = true`,
+    [JSON.stringify({ bottomControls: true, simplifiedLayout: true }), created.id],
   );
 
   const resolved = await request(app)
@@ -72,16 +99,39 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .set(testHeader)
     .send({ token: created.token });
   assert.equal(resolved.status, 200);
+  assert.equal(resolved.body.schemaVersion, 3);
   assert.equal(resolved.headers["cache-control"], "no-store");
-  assert.deepEqual(resolved.body.preferences, preferences);
+  assert.deepEqual(resolved.body.preferences, { ...preferences, viewportMode: null });
+  assert.equal("bottomControls" in resolved.body.preferences, false);
   assert.equal("simplifiedLayout" in resolved.body.preferences, false);
+  const storedLegacy = await pool.query<{ schema_version: number; bottom_controls: string | null }>(
+    `SELECT schema_version, preferences->>'bottomControls' AS bottom_controls
+     FROM profiles WHERE id = $1 AND is_test = true`,
+    [created.id],
+  );
+  assert.equal(storedLegacy.rows[0].schema_version, 2);
+  assert.equal(storedLegacy.rows[0].bottom_controls, "true");
 
   const managedLegacy = await request(app)
     .get(`/api/profiles/${created.id}/manage`)
     .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey });
   assert.equal(managedLegacy.status, 200);
-  assert.deepEqual(managedLegacy.body.preferences, preferences);
+  assert.equal(managedLegacy.body.schemaVersion, 3);
+  assert.deepEqual(managedLegacy.body.preferences, { ...preferences, viewportMode: null });
+  assert.equal("bottomControls" in managedLegacy.body.preferences, false);
   assert.equal("simplifiedLayout" in managedLegacy.body.preferences, false);
+
+  await pool.query(
+    "UPDATE profiles SET schema_version = 1 WHERE id = $1 AND is_test = true",
+    [created.id],
+  );
+  const resolvedV1 = await request(app)
+    .post("/api/profiles/resolve")
+    .set(testHeader)
+    .send({ token: created.token });
+  assert.equal(resolvedV1.status, 200);
+  assert.equal(resolvedV1.body.schemaVersion, 3);
+  assert.deepEqual(resolvedV1.body.preferences, { ...preferences, viewportMode: null });
 
   const tokenCannotManage = await request(app)
     .patch(`/api/profiles/${created.id}`)
@@ -182,7 +232,11 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .send({ token: successfulRotation.body.token });
   assert.equal(activeAfterConcurrentRotation.status, 200);
 
-  const changedPreferences = { ...preferences, voiceGuidance: true };
+  const changedPreferences = {
+    ...preferences,
+    viewportMode: { mode: "bottom" as const, heightPercent: 60 as const },
+    voiceGuidance: true,
+  };
   const tokenHashBeforeSettingsUpdate = await pool.query<{ token_hash: string }>(
     "SELECT token_hash FROM profiles WHERE id = $1 AND is_test = true",
     [created.id],
@@ -213,6 +267,25 @@ test("profile API creates, resolves, edits, rotates, and revokes QR tokens", asy
     .send({ token: successfulRotation.body.token });
   assert.equal(latestSettings.status, 200);
   assert.deepEqual(latestSettings.body.preferences, changedPreferences);
+
+  const changedToEighty = {
+    ...changedPreferences,
+    viewportMode: { mode: "bottom" as const, heightPercent: 80 as const },
+  };
+  const eightyUpdate = await request(app)
+    .patch(`/api/profiles/${created.id}`)
+    .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey })
+    .send({ schemaVersion: PROFILE_SCHEMA_VERSION, preferences: changedToEighty });
+  assert.equal(eightyUpdate.status, 200);
+  assert.deepEqual(eightyUpdate.body.preferences, changedToEighty);
+
+  const disabledViewportMode = { ...changedToEighty, viewportMode: null };
+  const disabledModeUpdate = await request(app)
+    .patch(`/api/profiles/${created.id}`)
+    .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey })
+    .send({ schemaVersion: PROFILE_SCHEMA_VERSION, preferences: disabledViewportMode });
+  assert.equal(disabledModeUpdate.status, 200);
+  assert.equal(disabledModeUpdate.body.preferences.viewportMode, null);
 
   const revoked = await request(app)
     .post(`/api/profiles/${created.id}/revoke`)

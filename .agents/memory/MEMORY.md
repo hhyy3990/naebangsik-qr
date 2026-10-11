@@ -1,3 +1,4 @@
 - [Helium PostgreSQL boundary](helium-postgres.md) — preserve the existing provider, profile/QR data, permissions, and schema during deployment work.
 - [Preview browser interaction checks](qr-preview-browser-testing.md) — use isolated Chromium contexts and boolean DOM readiness checks for interactive Preview verification.
 - [QR prototype rollout](qr-prototype-rollout.md) — user says this central service is pre-launch and old QR/SDK compatibility is not required; verify test-data status before destructive changes.
+- [QR profile schema evolution](qr-profile-schema-evolution.md) — normalize v1/v2 preferences to the current API shape on read; avoid bulk rewriting existing profile data.

@@ -1,17 +1,24 @@
-export const PROFILE_SCHEMA_VERSION = 2 as const;
+export const PROFILE_SCHEMA_VERSION = 3 as const;
+
+export type ViewportMode =
+  | {
+      mode: "bottom";
+      heightPercent: 60 | 70 | 80;
+    }
+  | null;
 
 export type ProfilePreferences = {
   textSize: "standard" | "large" | "extraLarge";
   buttonSize: "standard" | "large";
   contrast: "standard" | "high";
   easyLanguage: boolean;
-  bottomControls: boolean;
+  viewportMode: ViewportMode;
   smartGuide: boolean;
   guideDelaySeconds: 10 | 15 | 20;
   voiceGuidance: boolean;
 };
 
-export type StoredProfileSchemaVersion = 1 | typeof PROFILE_SCHEMA_VERSION;
+export type StoredProfileSchemaVersion = 1 | 2 | typeof PROFILE_SCHEMA_VERSION;
 
 export type CreatedProfile = {
   id: string;
@@ -23,7 +30,7 @@ export type CreatedProfile = {
 };
 
 export type ResolvedProfile = {
-  schemaVersion: StoredProfileSchemaVersion;
+  schemaVersion: typeof PROFILE_SCHEMA_VERSION;
   preferences: ProfilePreferences;
   updatedAt: string;
 };

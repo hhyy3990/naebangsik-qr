@@ -32,7 +32,7 @@ API 테스트는 실제 사용자 프로필과 구분되는 `is_test` 데이터�
 
 ## API
 
-모든 신규 접근성 설정 요청과 프로필에는 `schemaVersion: 2`가 포함됩니다. 프로필 설정에서 화면 단순화 항목은 제거되었습니다.
+모든 신규 접근성 설정 요청과 프로필에는 `schemaVersion: 3`이 포함됩니다. 하단 조작 모드는 `viewportMode`에 사용하지 않음 또는 60·70·80%로 저장됩니다. 기존 v1/v2 프로필은 QR 토큰과 다른 접근성 값을 유지하며, 조회 응답에서는 이전 하단 조작 값을 `viewportMode: null`로 정규화합니다.
 
 - `GET /api/public-config` — Preview 또는 공개 배포의 QR 주소 기준 확인
 - `POST /api/profiles` — 프로필과 QR 조회 토큰, 별도 관리 코드를 생성

@@ -4,16 +4,32 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import { PROFILE_SCHEMA_VERSION } from "../src/lib/profile";
 
-const preferencesSchema = z.object({
+const preferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
   buttonSize: z.enum(["standard", "large"]),
   contrast: z.enum(["standard", "high"]),
   easyLanguage: z.boolean(),
-  bottomControls: z.boolean(),
   smartGuide: z.boolean(),
   guideDelaySeconds: z.union([z.literal(10), z.literal(15), z.literal(20)]),
   voiceGuidance: z.boolean(),
-});
+};
+
+const viewportModeSchema = z.union([
+  z.null(),
+  z.object({
+    mode: z.literal("bottom"),
+    heightPercent: z.union([z.literal(60), z.literal(70), z.literal(80)]),
+  }).strict(),
+]);
+
+const preferencesSchema = z.object({
+  ...preferenceFields,
+  viewportMode: viewportModeSchema,
+}).strict();
+const legacyPreferencesSchema = z.object({
+  ...preferenceFields,
+  bottomControls: z.boolean().optional(),
+}).passthrough();
 
 const requestPreferencesSchema = preferencesSchema.strict();
 
@@ -32,7 +48,22 @@ const rotatePayloadSchema = z.object({
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const createToken = (prefix: string) => `${prefix}${randomBytes(32).toString("base64url")}`;
-const storedPreferences = (value: unknown) => preferencesSchema.parse(value);
+const storedPreferences = (value: unknown) => {
+  const current = preferencesSchema.safeParse(value);
+  if (current.success) return current.data;
+
+  const legacy = legacyPreferencesSchema.parse(value);
+  return {
+    textSize: legacy.textSize,
+    buttonSize: legacy.buttonSize,
+    contrast: legacy.contrast,
+    easyLanguage: legacy.easyLanguage,
+    viewportMode: null,
+    smartGuide: legacy.smartGuide,
+    guideDelaySeconds: legacy.guideDelaySeconds,
+    voiceGuidance: legacy.voiceGuidance,
+  };
+};
 
 const validManagementKey = (provided: string | undefined, storedHash: string) => {
   if (!provided) return false;
@@ -184,7 +215,7 @@ export function createApp(pool: Pool) {
     );
     if (!result.rowCount) return fail(res, 404, "사용할 수 없는 QR 코드입니다.");
     return res.json({
-      schemaVersion: result.rows[0].schema_version,
+      schemaVersion: PROFILE_SCHEMA_VERSION,
       preferences: storedPreferences(result.rows[0].preferences),
       updatedAt: new Date(result.rows[0].updated_at).toISOString(),
     });
@@ -203,7 +234,7 @@ export function createApp(pool: Pool) {
     }
     return res.json({
       id: profile.id,
-      schemaVersion: profile.schema_version,
+      schemaVersion: PROFILE_SCHEMA_VERSION,
       preferences: storedPreferences(profile.preferences),
       active: !profile.revoked_at,
       updatedAt: new Date(profile.updated_at).toISOString(),
