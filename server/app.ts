@@ -3,6 +3,12 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { z } from "zod";
 import type { Pool } from "pg";
 import { PROFILE_SCHEMA_VERSION } from "../src/lib/profile";
+import {
+  recommendationInputSchema,
+  recommendAccessibility,
+  validateRecommendation,
+  type RecommendationGenerator,
+} from "./recommendation";
 
 const preferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -111,8 +117,12 @@ function asyncRoute(
   };
 }
 
-export function createApp(pool: Pool) {
+export function createApp(
+  pool: Pool,
+  recommendationGenerator: RecommendationGenerator = recommendAccessibility,
+) {
   const app = express();
+  const recommendationAttempts = new Map<string, { count: number; resetAt: number }>();
   const allowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "")
       .split(",")
@@ -170,6 +180,48 @@ export function createApp(pool: Pool) {
 
     return res.json({ publicAppUrl: null, isPreview: !isProduction });
   });
+
+  app.post("/api/recommendations", asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const parsed = recommendationInputSchema.safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, "질문에 입력한 내용을 확인해 주세요.");
+    let input;
+    try {
+      input = validateRecommendation(parsed.data);
+    } catch (error) {
+      if (error instanceof Error && error.message === "SENSITIVE_INPUT") {
+        return fail(res, 400, "민감한 개인정보는 지우고 다시 요청해 주세요. 입력 내용은 AI로 보내지 않았어요.");
+      }
+      return fail(res, 400, "질문에 입력한 내용을 확인해 주세요.");
+    }
+
+    const now = Date.now();
+    const clientKey = hash(req.ip || "unknown");
+    const attempts = recommendationAttempts.get(clientKey);
+    if (attempts && attempts.resetAt > now && attempts.count >= 5) {
+      res.setHeader("Retry-After", "600");
+      return fail(res, 429, "요청이 잠시 많아요. 잠시 후 다시 시도해 주세요.");
+    }
+    if (!attempts || attempts.resetAt <= now) {
+      recommendationAttempts.set(clientKey, { count: 1, resetAt: now + 10 * 60_000 });
+    } else {
+      attempts.count += 1;
+    }
+    if (recommendationAttempts.size > 2_000) {
+      for (const [key, value] of recommendationAttempts) {
+        if (value.resetAt <= now) recommendationAttempts.delete(key);
+      }
+    }
+
+    try {
+      return res.json(await recommendationGenerator(input));
+    } catch (error) {
+      if (error instanceof Error && error.message === "AI_NOT_CONFIGURED") {
+        return fail(res, 503, "AI 추천을 준비 중이에요. 직접 설정하기를 이용해 주세요.");
+      }
+      return fail(res, 502, "추천을 만들지 못했어요. 다시 시도하거나 직접 설정해 주세요.");
+    }
+  }));
 
   app.post("/api/profiles", asyncRoute(async (req, res) => {
     const parsed = settingsPayloadSchema.safeParse(req.body);

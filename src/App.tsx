@@ -19,6 +19,7 @@ import {
   Type,
   Volume2,
 } from "lucide-react";
+import AIRecommendationFlow from "./AIRecommendationFlow";
 import {
   buildPublicQrUrl,
   profileApi,
@@ -381,6 +382,7 @@ export default function App() {
   const [publicError, setPublicError] = useState("");
   const [publicRetry, setPublicRetry] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [aiReasons, setAiReasons] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const rotationInProgress = useRef(false);
   const [publicAppConfig, setPublicAppConfig] = useState<PublicAppConfig | null>(null);
@@ -677,6 +679,13 @@ export default function App() {
     document.getElementById("profile-builder")?.focus({ preventScroll: true });
   }
 
+  function applyAIRecommendation(next: ProfilePreferences, reasons: string[]) {
+    setPreferences(next);
+    setAiReasons(reasons);
+    setNotice({ kind: "info", message: "추천 설정을 적용했어요. 직접 바꾸거나 미리보기에서 확인할 수 있어요." });
+    startCreating();
+  }
+
   if (queryToken) {
     return (
       <>
@@ -808,6 +817,10 @@ export default function App() {
           </div>
         </section>
 
+        <section className="app-shell ai-recommendation-section" aria-label="설정 시작 방법">
+          <AIRecommendationFlow onApply={applyAIRecommendation} onDirect={startCreating} />
+        </section>
+
         <section className="app-shell workspace" id="profile-builder" tabIndex={-1}>
           <section className="panel settings-panel" aria-labelledby="builder-title">
             <div className="panel-heading">
@@ -836,6 +849,12 @@ export default function App() {
               onPreferenceChange={changePreference}
               disabled={shouldDisableForm}
             />
+            {aiReasons.length > 0 && (
+              <div className="feedback info" role="status">
+                <Sparkles size={18} aria-hidden="true" />
+                <span>{aiReasons.join(" ")}</span>
+              </div>
+            )}
             <div className="save-block">
               {notice && (
                 <div className="notice-actions">
