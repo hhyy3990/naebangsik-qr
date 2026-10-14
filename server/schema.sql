@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY,
-  schema_version SMALLINT NOT NULL DEFAULT 3,
+  schema_version SMALLINT NOT NULL DEFAULT 4,
   preferences JSONB NOT NULL,
   token_hash TEXT UNIQUE,
   management_key_hash TEXT NOT NULL,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   revoked_at TIMESTAMPTZ,
   is_test BOOLEAN NOT NULL DEFAULT false,
-  CONSTRAINT profiles_schema_version_v3_check CHECK (schema_version IN (1, 2, 3))
+  CONSTRAINT profiles_schema_version_v4_check CHECK (schema_version IN (1, 2, 3, 4))
 );
 
 CREATE INDEX IF NOT EXISTS profiles_active_token_idx

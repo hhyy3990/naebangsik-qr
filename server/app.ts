@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { z } from "zod";
 import type { Pool } from "pg";
 import { PROFILE_SCHEMA_VERSION } from "../src/lib/profile";
+import { PROFILE_LANGUAGES } from "../src/lib/profile";
 import {
   recommendationInputSchema,
   recommendAccessibility,
@@ -10,7 +11,7 @@ import {
   type RecommendationGenerator,
 } from "./recommendation";
 
-const preferenceFields = {
+const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
   buttonSize: z.enum(["standard", "large"]),
   contrast: z.enum(["standard", "high"]),
@@ -18,6 +19,14 @@ const preferenceFields = {
   smartGuide: z.boolean(),
   guideDelaySeconds: z.union([z.literal(10), z.literal(15), z.literal(20)]),
   voiceGuidance: z.boolean(),
+};
+
+const preferenceFields = {
+  ...legacyPreferenceFields,
+  language: z.enum(PROFILE_LANGUAGES),
+  stepByStepGuidance: z.boolean(),
+  conciseGuidance: z.boolean(),
+  slowGuidance: z.boolean(),
 };
 
 const viewportModeSchema = z.union([
@@ -33,7 +42,12 @@ const preferencesSchema = z.object({
   viewportMode: viewportModeSchema,
 }).strict();
 const legacyPreferencesSchema = z.object({
-  ...preferenceFields,
+  ...legacyPreferenceFields,
+  viewportMode: viewportModeSchema.optional(),
+  language: z.enum(PROFILE_LANGUAGES).optional(),
+  stepByStepGuidance: z.boolean().optional(),
+  conciseGuidance: z.boolean().optional(),
+  slowGuidance: z.boolean().optional(),
   bottomControls: z.boolean().optional(),
 }).passthrough();
 
@@ -64,10 +78,14 @@ const storedPreferences = (value: unknown) => {
     buttonSize: legacy.buttonSize,
     contrast: legacy.contrast,
     easyLanguage: legacy.easyLanguage,
-    viewportMode: null,
+    viewportMode: legacy.viewportMode ?? null,
     smartGuide: legacy.smartGuide,
     guideDelaySeconds: legacy.guideDelaySeconds,
     voiceGuidance: legacy.voiceGuidance,
+    language: legacy.language ?? "ko",
+    stepByStepGuidance: legacy.stepByStepGuidance ?? false,
+    conciseGuidance: legacy.conciseGuidance ?? false,
+    slowGuidance: legacy.slowGuidance ?? false,
   };
 };
 

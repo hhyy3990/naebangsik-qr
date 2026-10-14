@@ -22,6 +22,7 @@ import {
 import AIRecommendationFlow from "./AIRecommendationFlow";
 import {
   buildPublicQrUrl,
+  PROFILE_LANGUAGES,
   profileApi,
   type ManagedProfile,
   type ProfilePreferences,
@@ -55,6 +56,20 @@ const DEFAULT_PREFERENCES: ProfilePreferences = {
   smartGuide: false,
   guideDelaySeconds: 15,
   voiceGuidance: false,
+  language: "ko",
+  stepByStepGuidance: false,
+  conciseGuidance: false,
+  slowGuidance: false,
+};
+
+const languageLabels: Record<(typeof PROFILE_LANGUAGES)[number], string> = {
+  ko: "한국어",
+  zh: "중국어",
+  vi: "베트남어",
+  en: "영어",
+  th: "태국어",
+  uz: "우즈베크어",
+  ja: "일본어",
 };
 
 function readStoredProfile(): StoredProfile | null {
@@ -286,6 +301,44 @@ function SettingsForm({
         checked={preferences.voiceGuidance}
         onChange={(value) => onPreferenceChange("voiceGuidance", value)}
       />
+      <div className="setting-row">
+        <div className="setting-info">
+          <strong>안내 언어</strong>
+          <span>국적이 아니라 편하게 사용하는 언어를 골라 주세요.</span>
+        </div>
+        <select
+          className="select-control"
+          aria-label="안내 언어"
+          value={preferences.language}
+          onChange={(event) => onPreferenceChange("language", event.target.value as ProfilePreferences["language"])}
+        >
+          {PROFILE_LANGUAGES.map((language) => (
+            <option key={language} value={language}>{languageLabels[language]}</option>
+          ))}
+        </select>
+      </div>
+      <ToggleRow
+        title="순서대로 안내받기"
+        description="해야 할 일을 하나씩 차례대로 알려드려요."
+        checked={preferences.stepByStepGuidance}
+        onChange={(value) => onPreferenceChange("stepByStepGuidance", value)}
+      />
+      <ToggleRow
+        title="짧게 안내받기"
+        description="꼭 필요한 내용만 짧게 알려드려요."
+        checked={preferences.conciseGuidance}
+        onChange={(value) => onPreferenceChange("conciseGuidance", value)}
+      />
+      <ToggleRow
+        title="천천히 안내받기"
+        description="스마트 길잡이를 15초 동안 보여드려요."
+        checked={preferences.slowGuidance}
+        onChange={(value) => onPreferenceChange("slowGuidance", value)}
+      />
+      {!preferences.smartGuide && (
+        <p className="setting-note">천천히 안내받기는 스마트 길잡이를 켰을 때 사용할 수 있어요. 지금 선택한 값은 저장됩니다.</p>
+      )}
+      <p className="setting-note">새 안내 설정은 지원 키오스크에 순차적으로 적용될 예정입니다.</p>
     </fieldset>
   );
 }
@@ -326,6 +379,7 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
                   <span>{preferences.voiceGuidance ? "음성 안내 켜짐" : "화면 안내"}</span>
                 </div>
                 <h4>무엇을 도와드릴까요?</h4>
+                <p>안내 언어 · {languageLabels[preferences.language]}</p>
                 <p>원하는 항목을 선택해 주세요.</p>
                 <div className="kiosk-options">
                   {options.map((option) => (
@@ -382,7 +436,7 @@ export default function App() {
   const [publicError, setPublicError] = useState("");
   const [publicRetry, setPublicRetry] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [aiReasons, setAiReasons] = useState<string[]>([]);
+  const [aiResultActive, setAiResultActive] = useState(false);
   const [aiQuestionSignal, setAiQuestionSignal] = useState(0);
   const [busy, setBusy] = useState(false);
   const rotationInProgress = useRef(false);
@@ -676,18 +730,22 @@ export default function App() {
   }
 
   function startCreating() {
-    document.getElementById("profile-builder")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    document.getElementById("profile-builder")?.focus({ preventScroll: true });
+    setAiResultActive(false);
+    window.requestAnimationFrame(() => {
+      const builder = document.getElementById("profile-builder");
+      builder?.scrollIntoView({ behavior: "smooth", block: "start" });
+      builder?.focus({ preventScroll: true });
+    });
   }
 
   function applyAIRecommendation(
     next: ProfilePreferences,
-    reasons: string[],
+    _reasons: string[],
     settingsAtRequestStart: ProfilePreferences,
   ) {
     if (JSON.stringify(preferences) !== JSON.stringify(settingsAtRequestStart)) return false;
     setPreferences(next);
-    setAiReasons(reasons);
+    setAiResultActive(true);
     setNotice(null);
     return true;
   }
@@ -849,7 +907,7 @@ export default function App() {
           />
         </section>
 
-        <section className="app-shell workspace" id="profile-builder" tabIndex={-1}>
+        {!aiResultActive && <section className="app-shell workspace" id="profile-builder" tabIndex={-1}>
           <section className="panel settings-panel" aria-labelledby="builder-title">
             <div className="panel-heading">
               <div>
@@ -877,12 +935,6 @@ export default function App() {
               onPreferenceChange={changePreference}
               disabled={shouldDisableForm}
             />
-            {aiReasons.length > 0 && (
-              <div className="feedback info" role="status">
-                <Sparkles size={18} aria-hidden="true" />
-                <span>{aiReasons.join(" ")}</span>
-              </div>
-            )}
             <div className="save-block">
               {notice && (
                 <div className="notice-actions">
@@ -910,7 +962,7 @@ export default function App() {
             </div>
           </section>
           <Preview preferences={preferences} />
-        </section>
+        </section>}
 
         {(managedLoading && saved) && (
           <section className="app-shell management-area" aria-label="저장한 프로필 불러오기">

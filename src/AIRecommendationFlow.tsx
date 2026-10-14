@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Check, LoaderCircle, Sparkles } from "lucide-react";
 import type { ProfilePreferences } from "./lib/profile";
 
@@ -92,6 +92,19 @@ export default function AIRecommendationFlow({
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const lastOpenQuestionsSignal = useRef(openQuestionsSignal);
+  const resultHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useLayoutEffect(() => {
+    if (step !== "result" || !recommendation) return;
+    const frame = window.requestAnimationFrame(() => {
+      const heading = resultHeadingRef.current;
+      if (!heading) return;
+      heading.focus({ preventScroll: true });
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      heading.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [step, recommendation]);
 
   function cancelPendingRequest() {
     requestSequence.current += 1;
@@ -290,7 +303,7 @@ export default function AIRecommendationFlow({
           <fieldset className="air-question">
             <legend>② 어떤 언어로 안내받고 싶으신가요?</legend>
             <p className="air-help">
-              이 외의 언어는 추후 추가할 예정입니다. 선택한 언어는 설정에 저장되지 않고 추천에만 참고해요.
+              이 외의 언어는 추후 추가할 예정입니다. 언어는 QR 설정에 저장돼요.
             </p>
             <div className="air-option-grid air-language-options">
               {languageOptions.map((option) => (
@@ -408,7 +421,7 @@ export default function AIRecommendationFlow({
       {step === "result" && recommendation && (
         <section className="air-result" aria-labelledby="air-result-title">
           <span className="air-result-mark" aria-hidden="true"><Check size={23} /></span>
-          <h3 id="air-result-title">나에게 맞는 설정을 준비했어요</h3>
+          <h3 id="air-result-title" ref={resultHeadingRef} tabIndex={-1}>나에게 맞는 설정을 준비했어요</h3>
           <p className="air-result-intro">이런 점을 생각해 추천했어요.</p>
           {recommendation.reasons.length > 0 ? (
             <ul className="air-reasons">
@@ -418,11 +431,6 @@ export default function AIRecommendationFlow({
             <p className="air-no-reasons">입력한 내용을 바탕으로 설정을 추천했어요.</p>
           )}
           <p className="air-edit-note">적용한 뒤에도 설정을 직접 바꿀 수 있어요.</p>
-          {answers.usageIssues.includes("needsMoreTime") && (
-            <p className="air-schema-note">
-              현재 설정에는 ‘15초 동안 표시’ 설정이 없어 적용할 수 없어요.
-            </p>
-          )}
           <button
             type="button"
             className="air-submit"

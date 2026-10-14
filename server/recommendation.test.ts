@@ -29,6 +29,10 @@ const result: RecommendationResult = {
     smartGuide: false,
     guideDelaySeconds: 15,
     voiceGuidance: false,
+    language: "ko",
+    stepByStepGuidance: false,
+    conciseGuidance: false,
+    slowGuidance: false,
     viewportMode: { mode: "bottom", heightPercent: 70 },
   },
   reasons: [
@@ -50,7 +54,7 @@ test("recommendation rejects sensitive free text before any model call", () => {
   assert.throws(() => validateRecommendation({ ...input, freeText: "주민등록번호를 입력할게요" }), /SENSITIVE_INPUT/);
 });
 
-test("recommendation output is strict, current-v3 only, and rejects unsupported claims", () => {
+test("recommendation output is strict, current-v4 only, and rejects unsupported claims", () => {
   assert.deepEqual(parseRecommendationOutput(modelResult, input), result);
   assert.throws(() => parseRecommendationOutput({
     ...modelResult,
@@ -63,15 +67,72 @@ test("recommendation output is strict, current-v3 only, and rejects unsupported 
       modelResult.reasons[1],
     ],
   }, input), /UNSUPPORTED_CLAIM/);
-  const needsMoreTimeInput: RecommendationInput = { ...input, usageIssues: ["needsMoreTime"] };
-  assert.throws(() => parseRecommendationOutput({
+});
+
+test("80대 이상과 작은 글씨 불편에는 extraLarge를 적용하고 이유도 실제 값과 일치시킨다", () => {
+  const input80: RecommendationInput = {
+    ageGroup: "80plus",
+    preferredLanguage: "ko",
+    visualIssues: ["smallText"],
+    usageIssues: [],
+    freeText: null,
+  };
+  const modelLarge = {
     ...modelResult,
-    preferences: { ...result.preferences, guideDelaySeconds: 20 },
+    preferences: { ...result.preferences, textSize: "large" as const },
     reasons: [
-      { text: "더 편하게 기다릴 수 있도록 바꿨어요.", basedOn: ["needsMoreTime"] },
-      { text: "작은 글씨가 불편하다고 하셔서 글씨를 크게 했어요.", basedOn: ["smallText"] },
+      { text: "글씨를 크게 설정했어요.", basedOn: ["smallText"] },
+      { text: "작은 글씨가 불편해요.", basedOn: ["smallText"] },
     ],
-  }, needsMoreTimeInput), /UNSUPPORTED_DURATION_MAPPING/);
+  };
+  const recommended = parseRecommendationOutput(modelLarge, input80);
+  assert.equal(recommended.preferences.textSize, "extraLarge");
+  assert.match(recommended.reasons[0], /매우 크게/);
+
+  const ageAlone = parseRecommendationOutput({
+    ...modelLarge,
+    reasons: modelLarge.reasons.map((reason) => ({ ...reason, basedOn: ["noSpecificPreference"] })),
+  }, { ...input80, visualIssues: [] });
+  assert.equal(ageAlone.preferences.textSize, "large");
+
+  const conflict = parseRecommendationOutput({
+    ...modelLarge,
+    preferences: { ...modelLarge.preferences, textSize: "extraLarge" },
+    reasons: [
+      { text: "매우 크게 설정했어요.", basedOn: ["smallText"] },
+      { text: "선택한 내용을 고려했어요.", basedOn: ["freeText"] },
+    ],
+  }, { ...input80, freeText: "큰 글씨는 오히려 불편해요." });
+  assert.equal(conflict.preferences.textSize, "standard");
+  assert.ok(conflict.reasons.some((reason) => /기본 글씨 크기/.test(reason)));
+});
+
+test("AI recommendation saves selected language and distinct guidance preferences", () => {
+  const selected: RecommendationInput = {
+    ageGroup: "60s",
+    preferredLanguage: "ja",
+    visualIssues: [],
+    usageIssues: ["unsureSteps", "needsMoreTime"],
+    freeText: null,
+  };
+  const recommendation = parseRecommendationOutput({
+    ...modelResult,
+    preferences: {
+      ...result.preferences,
+      language: "ko",
+      stepByStepGuidance: false,
+      slowGuidance: false,
+      guideDelaySeconds: 20,
+    },
+    reasons: [
+      { text: "해야 할 일을 차례대로 알려드려요.", basedOn: ["unsureSteps"] },
+      { text: "안내를 천천히 받을 수 있어요.", basedOn: ["needsMoreTime"] },
+    ],
+  }, selected);
+  assert.equal(recommendation.preferences.language, "ja");
+  assert.equal(recommendation.preferences.stepByStepGuidance, true);
+  assert.equal(recommendation.preferences.slowGuidance, true);
+  assert.equal(recommendation.preferences.guideDelaySeconds, 20);
 });
 
 test("OpenAI request disables response storage and validates structured response", async () => {

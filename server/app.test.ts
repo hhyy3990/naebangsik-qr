@@ -24,6 +24,10 @@ const preferences = {
   smartGuide: true,
   guideDelaySeconds: 15,
   voiceGuidance: false,
+  language: "ko",
+  stepByStepGuidance: false,
+  conciseGuidance: false,
+  slowGuidance: false,
 };
 
 after(async () => {
@@ -33,7 +37,7 @@ after(async () => {
   await pool.end();
 });
 
-test("profile API creates v3 profiles and normalizes legacy settings without losing QR management", async () => {
+test("profile API creates v4 profiles and normalizes legacy settings without losing QR management", async () => {
   const oldFieldRequest = await request(app)
     .post("/api/profiles")
     .set(testHeader)
@@ -50,6 +54,14 @@ test("profile API creates v3 profiles and normalizes legacy settings without los
       preferences: { ...preferences, simplifiedLayout: true },
     });
   assert.equal(removedSettingRequest.status, 400);
+  const invalidLanguageRequest = await request(app)
+    .post("/api/profiles")
+    .set(testHeader)
+    .send({
+      schemaVersion: PROFILE_SCHEMA_VERSION,
+      preferences: { ...preferences, language: "fr" },
+    });
+  assert.equal(invalidLanguageRequest.status, 400);
 
   for (const invalidMode of [
     { mode: "bottom", heightPercent: 59 },
@@ -89,7 +101,7 @@ test("profile API creates v3 profiles and normalizes legacy settings without los
   await pool.query(
     `UPDATE profiles
      SET schema_version = 2,
-         preferences = (preferences - 'viewportMode') || $1::jsonb
+         preferences = (preferences - 'viewportMode' - 'language' - 'stepByStepGuidance' - 'conciseGuidance' - 'slowGuidance') || $1::jsonb
      WHERE id = $2 AND is_test = true`,
     [JSON.stringify({ bottomControls: true, simplifiedLayout: true }), created.id],
   );
@@ -99,7 +111,7 @@ test("profile API creates v3 profiles and normalizes legacy settings without los
     .set(testHeader)
     .send({ token: created.token });
   assert.equal(resolved.status, 200);
-  assert.equal(resolved.body.schemaVersion, 3);
+  assert.equal(resolved.body.schemaVersion, PROFILE_SCHEMA_VERSION);
   assert.equal(resolved.headers["cache-control"], "no-store");
   assert.deepEqual(resolved.body.preferences, { ...preferences, viewportMode: null });
   assert.equal("bottomControls" in resolved.body.preferences, false);
@@ -112,17 +124,39 @@ test("profile API creates v3 profiles and normalizes legacy settings without los
   assert.equal(storedLegacy.rows[0].schema_version, 2);
   assert.equal(storedLegacy.rows[0].bottom_controls, "true");
 
+  await pool.query(
+    `UPDATE profiles
+     SET schema_version = 3,
+         preferences = (preferences - 'language' - 'stepByStepGuidance' - 'conciseGuidance' - 'slowGuidance') || $1::jsonb
+     WHERE id = $2 AND is_test = true`,
+    [JSON.stringify({ viewportMode: preferences.viewportMode }), created.id],
+  );
+  const resolvedV3 = await request(app)
+    .post("/api/profiles/resolve")
+    .set(testHeader)
+    .send({ token: created.token });
+  assert.equal(resolvedV3.status, 200);
+  assert.deepEqual(resolvedV3.body.preferences, { ...preferences, language: "ko", stepByStepGuidance: false, conciseGuidance: false, slowGuidance: false });
+  const unchangedV3 = await pool.query<{ schema_version: number; language: string | null }>(
+    "SELECT schema_version, preferences->>'language' AS language FROM profiles WHERE id = $1 AND is_test = true",
+    [created.id],
+  );
+  assert.equal(unchangedV3.rows[0].schema_version, 3);
+  assert.equal(unchangedV3.rows[0].language, null);
+
   const managedLegacy = await request(app)
     .get(`/api/profiles/${created.id}/manage`)
     .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey });
   assert.equal(managedLegacy.status, 200);
-  assert.equal(managedLegacy.body.schemaVersion, 3);
-  assert.deepEqual(managedLegacy.body.preferences, { ...preferences, viewportMode: null });
+  assert.equal(managedLegacy.body.schemaVersion, PROFILE_SCHEMA_VERSION);
+  assert.deepEqual(managedLegacy.body.preferences, { ...preferences, language: "ko", stepByStepGuidance: false, conciseGuidance: false, slowGuidance: false });
   assert.equal("bottomControls" in managedLegacy.body.preferences, false);
   assert.equal("simplifiedLayout" in managedLegacy.body.preferences, false);
 
   await pool.query(
-    "UPDATE profiles SET schema_version = 1 WHERE id = $1 AND is_test = true",
+    `UPDATE profiles SET schema_version = 1,
+      preferences = (preferences - 'viewportMode') || '{"bottomControls": true}'::jsonb
+      WHERE id = $1 AND is_test = true`,
     [created.id],
   );
   const resolvedV1 = await request(app)
@@ -130,7 +164,7 @@ test("profile API creates v3 profiles and normalizes legacy settings without los
     .set(testHeader)
     .send({ token: created.token });
   assert.equal(resolvedV1.status, 200);
-  assert.equal(resolvedV1.body.schemaVersion, 3);
+  assert.equal(resolvedV1.body.schemaVersion, PROFILE_SCHEMA_VERSION);
   assert.deepEqual(resolvedV1.body.preferences, { ...preferences, viewportMode: null });
 
   const tokenCannotManage = await request(app)
@@ -299,6 +333,37 @@ test("profile API creates v3 profiles and normalizes legacy settings without los
     .send({ token: successfulRotation.body.token });
   assert.equal(revokedToken.status, 404);
   assert.equal(revokedToken.headers["cache-control"], "no-store");
+});
+
+test("all seven supported profile languages can be created, resolved, and edited", async () => {
+  for (const language of ["ko", "zh", "vi", "en", "th", "uz", "ja"] as const) {
+    const createdResponse = await request(app)
+      .post("/api/profiles")
+      .set(testHeader)
+      .send({ schemaVersion: PROFILE_SCHEMA_VERSION, preferences: { ...preferences, language } });
+    assert.equal(createdResponse.status, 201);
+    const created = createdResponse.body as {
+      id: string;
+      token: string;
+      managementKey: string;
+    };
+    testProfileIds.push(created.id);
+
+    const resolved = await request(app)
+      .post("/api/profiles/resolve")
+      .set(testHeader)
+      .send({ token: created.token });
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.body.preferences.language, language);
+
+    const changed = { ...preferences, language, stepByStepGuidance: true, conciseGuidance: true, slowGuidance: true };
+    const updated = await request(app)
+      .patch(`/api/profiles/${created.id}`)
+      .set({ ...testHeader, "X-Profile-Management-Key": created.managementKey })
+      .send({ schemaVersion: PROFILE_SCHEMA_VERSION, preferences: changed });
+    assert.equal(updated.status, 200);
+    assert.deepEqual(updated.body.preferences, changed);
+  }
 });
 
 test("public QR configuration separates Preview from a configured published URL", async () => {
