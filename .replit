@@ -47,3 +47,8 @@ externalPort = 3000
 deploymentTarget = "autoscale"
 run = ["npm", "run", "start"]
 build = ["npm", "run", "build"]
+
+[userenv]
+
+[userenv.shared]
+OPENAI_API_KEY = "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"
