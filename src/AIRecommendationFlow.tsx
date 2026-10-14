@@ -1,10 +1,17 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Check, LoaderCircle, Sparkles } from "lucide-react";
 import type { ProfilePreferences } from "./lib/profile";
 
 type AIRecommendationFlowProps = {
-  onApply: (preferences: ProfilePreferences, reasons: string[]) => void;
+  getSettingsSnapshot: () => ProfilePreferences;
+  onRecommendationReady: (
+    preferences: ProfilePreferences,
+    reasons: string[],
+    settingsAtRequestStart: ProfilePreferences,
+  ) => boolean;
+  onContinue: () => void;
   onDirect: () => void;
+  openQuestionsSignal: number;
 };
 
 type RecommendationResponse = {
@@ -68,24 +75,78 @@ function toggleItem<T extends string>(items: T[], item: T) {
   return items.includes(item) ? items.filter((value) => value !== item) : [...items, item];
 }
 
-export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommendationFlowProps) {
+export default function AIRecommendationFlow({
+  getSettingsSnapshot,
+  onRecommendationReady,
+  onContinue,
+  onDirect,
+  openQuestionsSignal,
+}: AIRecommendationFlowProps) {
   const [step, setStep] = useState<"paths" | "questions" | "result">("paths");
   const [answers, setAnswers] = useState<FormAnswers>(emptyAnswers);
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const submitting = useRef(false);
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
+  const lastOpenQuestionsSignal = useRef(openQuestionsSignal);
+
+  function cancelPendingRequest() {
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    requestController.current = null;
+    submitting.current = false;
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (lastOpenQuestionsSignal.current === openQuestionsSignal) return;
+    lastOpenQuestionsSignal.current = openQuestionsSignal;
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    requestController.current = null;
+    submitting.current = false;
+    setLoading(false);
+    setError("");
+    setNotice("");
+    setStep("questions");
+  }, [openQuestionsSignal]);
+
+  useEffect(
+    () => () => {
+      requestSequence.current += 1;
+      requestController.current?.abort();
+    },
+    [],
+  );
 
   async function submitAnswers(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting.current) return;
     submitting.current = true;
+    const requestId = ++requestSequence.current;
+    const controller = new AbortController();
+    requestController.current = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 30_000);
     setLoading(true);
     setError("");
+    setNotice("");
     try {
+      const currentSettings = getSettingsSnapshot();
+      const settingsAtRequestStart: ProfilePreferences = {
+        ...currentSettings,
+        viewportMode: currentSettings.viewportMode ? { ...currentSettings.viewportMode } : null,
+      };
       const response = await fetch("/api/recommendations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           ageGroup: answers.ageGroup || null,
           preferredLanguage: answers.preferredLanguage || null,
@@ -94,9 +155,11 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
           freeText: answers.freeText.trim() || null,
         }),
       });
+      if (requestId !== requestSequence.current) return;
       const payload = await response.json().catch(() => null) as
         | (Partial<RecommendationResponse> & { error?: string })
         | null;
+      if (requestId !== requestSequence.current) return;
       if (!response.ok) {
         throw new Error(
           payload?.error ||
@@ -107,30 +170,60 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
         !payload ||
         !payload.preferences ||
         !Array.isArray(payload.reasons) ||
-        !payload.reasons.every((reason) => typeof reason === "string")
+        payload.reasons.length < 2 ||
+        payload.reasons.length > 4 ||
+        !payload.reasons.every((reason) => typeof reason === "string" && reason.trim().length > 0)
       ) {
         throw new Error("추천 결과를 확인하지 못했어요. 다시 시도해 주세요.");
       }
+      const preferences = payload.preferences as ProfilePreferences;
+      if (!onRecommendationReady(preferences, payload.reasons, settingsAtRequestStart)) {
+        if (requestId === requestSequence.current) {
+          setNotice("요청하는 동안 설정이 변경되어 추천을 표시하지 않았어요. 현재 설정을 유지하고 직접 설정을 계속할 수 있어요.");
+          setStep("questions");
+        }
+        return;
+      }
       setRecommendation({
-        preferences: payload.preferences as ProfilePreferences,
+        preferences,
         reasons: payload.reasons,
       });
       setStep("result");
     } catch (requestError) {
+      if (requestId !== requestSequence.current || controller.signal.aborted && !timedOut) return;
       setError(
-        requestError instanceof Error
+        timedOut
+          ? "요청 시간이 초과되었어요. 현재 설정은 그대로예요. 다시 시도하거나 직접 설정해 주세요."
+          : requestError instanceof Error
           ? requestError.message
           : "추천을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
       );
     } finally {
-      submitting.current = false;
-      setLoading(false);
+      window.clearTimeout(timeout);
+      if (requestId === requestSequence.current) {
+        requestController.current = null;
+        submitting.current = false;
+        setLoading(false);
+      }
     }
   }
 
   function returnToQuestions() {
     setStep("questions");
     setError("");
+    setNotice("");
+  }
+
+  function returnToPaths() {
+    cancelPendingRequest();
+    setError("");
+    setNotice("");
+    setStep("paths");
+  }
+
+  function chooseDirectSetup() {
+    cancelPendingRequest();
+    onDirect();
   }
 
   return (
@@ -146,7 +239,7 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
           <button
             type="button"
             className="air-path air-path-featured"
-            onClick={() => setStep("questions")}
+            onClick={returnToQuestions}
           >
             <span className="air-path-mark" aria-hidden="true"><Sparkles size={21} /></span>
             <span className="air-path-copy">
@@ -155,7 +248,7 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
             </span>
             <ArrowRight className="air-path-arrow" size={20} aria-hidden="true" />
           </button>
-          <button type="button" className="air-path" onClick={onDirect}>
+          <button type="button" className="air-path" onClick={chooseDirectSetup}>
             <span className="air-path-mark air-path-mark-direct" aria-hidden="true"><ArrowRight size={20} /></span>
             <span className="air-path-copy">
               <strong>직접 설정하기</strong>
@@ -169,7 +262,7 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
       {step === "questions" && (
         <form className="air-form" onSubmit={submitAnswers}>
           <div className="air-form-top">
-            <button className="air-back" type="button" onClick={() => setStep("paths")}>
+            <button className="air-back" type="button" onClick={returnToPaths}>
               <ArrowLeft size={17} aria-hidden="true" /> 방법 다시 고르기
             </button>
             <span>모두 선택 사항</span>
@@ -279,7 +372,22 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
             <span className="air-character-count" aria-live="polite">{answers.freeText.length}/300</span>
           </div>
 
-          {error && <div className="air-error" role="alert">{error}</div>}
+          {error && (
+            <div className="air-error" role="alert">
+              <p>{error}</p>
+              <button type="button" className="air-back" onClick={chooseDirectSetup}>
+                직접 설정하기 <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+          {notice && (
+            <div className="air-notice" role="status">
+              <p>{notice}</p>
+              <button type="button" className="air-back" onClick={chooseDirectSetup}>
+                직접 설정하기 <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           <div className="air-submit-row">
             <button className="air-submit" type="submit" disabled={loading}>
               {loading ? (
@@ -318,7 +426,7 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
           <button
             type="button"
             className="air-submit"
-            onClick={() => onApply(recommendation.preferences, recommendation.reasons)}
+            onClick={onContinue}
           >
             이 설정 사용하기 <ArrowRight size={18} aria-hidden="true" />
           </button>
@@ -326,7 +434,7 @@ export default function AIRecommendationFlow({ onApply, onDirect }: AIRecommenda
             <button type="button" className="air-back" onClick={returnToQuestions}>
               <ArrowLeft size={16} aria-hidden="true" /> 답변 다시 보기
             </button>
-            <button type="button" className="air-back" onClick={onDirect}>
+            <button type="button" className="air-back" onClick={chooseDirectSetup}>
               직접 설정하기 <ArrowRight size={16} aria-hidden="true" />
             </button>
           </div>

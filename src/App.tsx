@@ -383,6 +383,7 @@ export default function App() {
   const [publicRetry, setPublicRetry] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [aiReasons, setAiReasons] = useState<string[]>([]);
+  const [aiQuestionSignal, setAiQuestionSignal] = useState(0);
   const [busy, setBusy] = useState(false);
   const rotationInProgress = useRef(false);
   const [publicAppConfig, setPublicAppConfig] = useState<PublicAppConfig | null>(null);
@@ -679,11 +680,29 @@ export default function App() {
     document.getElementById("profile-builder")?.focus({ preventScroll: true });
   }
 
-  function applyAIRecommendation(next: ProfilePreferences, reasons: string[]) {
+  function applyAIRecommendation(
+    next: ProfilePreferences,
+    reasons: string[],
+    settingsAtRequestStart: ProfilePreferences,
+  ) {
+    if (JSON.stringify(preferences) !== JSON.stringify(settingsAtRequestStart)) return false;
     setPreferences(next);
     setAiReasons(reasons);
-    setNotice({ kind: "info", message: "추천 설정을 적용했어요. 직접 바꾸거나 미리보기에서 확인할 수 있어요." });
+    setNotice(null);
+    return true;
+  }
+
+  function continueWithAIRecommendation() {
+    setNotice({ kind: "info", message: "추천 설정이 적용됐어요. 저장 전에 확인하거나 직접 수정해 주세요." });
     startCreating();
+  }
+
+  function startAIRecommendation() {
+    setAiQuestionSignal((signal) => signal + 1);
+    const section = document.getElementById("ai-recommendation");
+    if (!section) return;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    section.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
   }
 
   if (queryToken) {
@@ -794,6 +813,9 @@ export default function App() {
                   내 QR 보기 <QrCode size={17} aria-hidden="true" />
                 </button>
               )}
+              <button className="btn btn-ai" type="button" onClick={startAIRecommendation}>
+                AI 추천받기 <Sparkles size={17} aria-hidden="true" />
+              </button>
             </div>
             <div className="intro-note">
               <LockKeyhole size={16} aria-hidden="true" />
@@ -805,7 +827,7 @@ export default function App() {
         <section className="app-shell steps" aria-label="이용 방법">
           <div className="step">
             <span className="step-number">1</span>
-            <div><strong>내게 맞게 고르기</strong><span>화면을 보며 편한 설정을 선택해요.</span></div>
+            <div><strong>내게 맞게 고르기</strong><span>화면을 보며 직접 고르거나, AI 추천을 받아 편한 설정을 찾으세요.</span></div>
           </div>
           <div className="step">
             <span className="step-number">2</span>
@@ -817,8 +839,14 @@ export default function App() {
           </div>
         </section>
 
-        <section className="app-shell ai-recommendation-section" aria-label="설정 시작 방법">
-          <AIRecommendationFlow onApply={applyAIRecommendation} onDirect={startCreating} />
+        <section className="app-shell ai-recommendation-section" id="ai-recommendation" aria-label="설정 시작 방법">
+          <AIRecommendationFlow
+            getSettingsSnapshot={() => preferences}
+            onRecommendationReady={applyAIRecommendation}
+            onContinue={continueWithAIRecommendation}
+            onDirect={startCreating}
+            openQuestionsSignal={aiQuestionSignal}
+          />
         </section>
 
         <section className="app-shell workspace" id="profile-builder" tabIndex={-1}>

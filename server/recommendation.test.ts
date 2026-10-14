@@ -31,14 +31,17 @@ const result: RecommendationResult = {
     voiceGuidance: false,
     viewportMode: { mode: "bottom", heightPercent: 70 },
   },
-  reasons: ["작은 글씨와 위쪽 버튼이 불편하다고 하셔서 글씨를 키우고 조작 영역을 아래로 옮겼어요."],
+  reasons: [
+    "작은 글씨와 위쪽 버튼이 불편하다고 하셔서 글씨를 키우고 조작 영역을 아래로 옮겼어요.",
+    "어려운 단어가 많다고 하셔서 쉬운 말 안내를 켰어요.",
+  ],
 };
 const modelResult = {
   preferences: result.preferences,
-  reasons: [{
-    text: result.reasons[0],
-    basedOn: ["smallText", "topOutOfReach"],
-  }],
+  reasons: [
+    { text: result.reasons[0], basedOn: ["smallText", "topOutOfReach"] },
+    { text: result.reasons[1], basedOn: ["difficultWords"] },
+  ],
 };
 
 test("recommendation rejects sensitive free text before any model call", () => {
@@ -55,13 +58,19 @@ test("recommendation output is strict, current-v3 only, and rejects unsupported 
   }, input));
   assert.throws(() => parseRecommendationOutput({
     ...modelResult,
-    reasons: [{ text: "안내를 15초 동안 유지하도록 설정했어요.", basedOn: ["smallText"] }],
+    reasons: [
+      { text: "안내를 15초 동안 유지하도록 설정했어요.", basedOn: ["smallText"] },
+      modelResult.reasons[1],
+    ],
   }, input), /UNSUPPORTED_CLAIM/);
   const needsMoreTimeInput: RecommendationInput = { ...input, usageIssues: ["needsMoreTime"] };
   assert.throws(() => parseRecommendationOutput({
     ...modelResult,
     preferences: { ...result.preferences, guideDelaySeconds: 20 },
-    reasons: [{ text: "더 편하게 기다릴 수 있도록 바꿨어요.", basedOn: ["needsMoreTime"] }],
+    reasons: [
+      { text: "더 편하게 기다릴 수 있도록 바꿨어요.", basedOn: ["needsMoreTime"] },
+      { text: "작은 글씨가 불편하다고 하셔서 글씨를 크게 했어요.", basedOn: ["smallText"] },
+    ],
   }, needsMoreTimeInput), /UNSUPPORTED_DURATION_MAPPING/);
 });
 
