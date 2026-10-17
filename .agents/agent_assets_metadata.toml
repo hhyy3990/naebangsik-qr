@@ -1,0 +1,30 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Rn4vhXGQT0TddNEXdVww1"
+uri = "file://attached_assets/qr-test-a.png"
+type = "image"
+title = "Development 테스트 QR A — 일반 화면"
+description = "Very large text, large buttons, high contrast, easy language and Smart Guide enabled; no bottom controls. This QR is for Development testing only."
+logical_id = "843e89de-e07d-4d75-9cc6-f8deb2ae98be"
+content_hash = "sha256:3df96ae7a662ba5d3f2ad54416cc2b0e886c7c22e76c82787230aed0bb5c06c7"
+size = 8000
+mtime_ms = 1792215353154
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/843e89de-e07d-4d75-9cc6-f8deb2ae98be/6b6a0fe2-e7fb-4460-900e-771846a14cbe"
+storage_version_token = "1792215409184050"
+content_type = "image/png"
+
+[[outputs]]
+id = "Hvys2aMzD9CF4xKMw98A5"
+uri = "file://attached_assets/qr-test-b.png"
+type = "image"
+title = "Development 테스트 QR B — 하단 조작 80%"
+description = "Same settings as A, with bottom controls at 80%. This QR is for Development testing only."
+logical_id = "43107044-30b5-460a-899d-82c57c2c09dc"
+content_hash = "sha256:9785f33819847db6cbd232549ff363ed4603602d5d8ba69a53a6f6e4cb20e819"
+size = 7860
+mtime_ms = 1792215353214
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/43107044-30b5-460a-899d-82c57c2c09dc/b9b27002-f778-44bf-a879-a373db2d0988"
+storage_version_token = "1792215410490695"
+content_type = "image/png"
