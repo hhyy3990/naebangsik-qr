@@ -21,6 +21,12 @@ The user reports that Demo Coffee accepts official QR links only from the Produc
 
 **How to apply:** Treat the relay details as user-reported until the kiosk project is available, and still verify the SDK accepts the v4 response before publishing.
 
+Before any approved Production schema change, the user requires confirmation of an actual recoverable Production backup/PITR point and review of the exact Publish schema diff. The existence of backup features alone is insufficient.
+
+**Why:** Production QR profiles must be preserved, and recovery must be available before schema changes.
+
+**How to apply:** Verify a concrete restore point in the Production Database tool and stop if it cannot be confirmed; permit only the explicitly approved schema changes.
+
 The civil-service kiosk has a known unresolved issue at 320×844 with bottom controls at 80% and extremely long easy-language text: the guide body is clipped by about 11 px. Do not add a workaround or change the SDK without approval.
 
 **Why:** The user explicitly identified this as an existing issue to verify with ordinary real-QR guidance, not to fix in the current preparation step.
