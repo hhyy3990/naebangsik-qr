@@ -623,8 +623,17 @@ svg {
 }
 
 .preview-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   padding: 23px;
   background: #f1f4f4;
+}
+
+.preview-guide-slot {
+  width: min(100%, 292px);
+  margin-inline: auto;
 }
 
 .kiosk-screen {
@@ -674,9 +683,12 @@ svg {
 }
 
 .kiosk-unused-region {
-  display: grid;
+  display: flex;
   flex: 0 0 auto;
-  place-items: center;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
   border-bottom: 1px dashed #b4c1cc;
   color: #68798b;
   background: repeating-linear-gradient(
@@ -851,27 +863,58 @@ svg {
   background: #fffdf5;
 }
 
-.easy-guide-preview {
-  margin: 8px 0 14px;
+.preview-guide-card {
+  width: 100%;
   border: 1px solid #b8cde5;
   border-radius: 10px;
-  padding: 10px;
+  padding: 6px;
+  color: #20324c;
   background: #f1f6fc;
 }
 
-.easy-guide-copy {
-  min-height: 3.2em;
-  font-size: calc(12px * var(--kiosk-scale));
+.preview-guide-card.easy {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) 44px;
+  gap: 2px;
+}
+
+.preview-guide-title,
+.preview-guide-copy strong {
+  font-size: 11px;
   font-weight: var(--kiosk-label-weight);
-  line-height: 1.5;
+  line-height: 1.2;
+}
+
+.preview-guide-copy {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 2px;
+}
+
+.preview-guide-copy span,
+.easy-guide-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.preview-guide-card.smart {
+  display: grid;
+  min-height: 60px;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 6px;
 }
 
 .easy-guide-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 4px;
 }
 
 .easy-guide-controls button,
@@ -887,9 +930,32 @@ svg {
   cursor: pointer;
 }
 
+.easy-guide-controls button {
+  flex: 0 1 auto;
+  padding: 3px;
+  font-size: 10px;
+}
+
 .easy-guide-controls button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.preview-guide-card.contrast-high {
+  border: 2px solid #111820;
+  color: #111820;
+  background: #fff7cf;
+}
+
+.preview-guide-card.contrast-high button {
+  border: 2px solid #111820;
+  color: #111820;
+  background: #fffdf5;
+}
+
+.preview-guide-card button:focus-visible {
+  outline: 3px solid #1764ba;
+  outline-offset: 2px;
 }
 
 .kiosk-sample-copy {
@@ -910,28 +976,10 @@ svg {
   font-weight: 700;
 }
 
-.smart-guide-preview {
-  position: absolute;
-  z-index: 3;
-  inset: 36% 12px auto;
-  display: grid;
-  gap: 8px;
-  border: 2px solid #20324c;
-  border-radius: 12px;
-  padding: 44px 12px 14px;
-  color: #17263a;
-  background: #fff7cf;
-  box-shadow: 0 8px 24px rgba(15, 28, 44, 0.25);
-  font-size: calc(13px * var(--kiosk-scale));
-  line-height: 1.5;
-}
-
 .smart-guide-close {
-  position: absolute;
-  top: 6px;
-  right: 6px;
   display: grid;
   place-items: center;
+  padding: 0;
 }
 
 .preview-help {
@@ -939,16 +987,9 @@ svg {
   margin-top: 5px;
 }
 
-.kiosk-screen.contrast-high .easy-guide-preview,
-.kiosk-screen.contrast-high .scroll-guidance-preview,
-.kiosk-screen.contrast-high .smart-guide-preview {
+.kiosk-screen.contrast-high .scroll-guidance-preview {
   border-color: #111820;
   color: #111820;
-}
-
-.kiosk-screen.contrast-high .easy-guide-preview,
-.kiosk-screen.contrast-high .smart-guide-preview {
-  background: #fff7cf;
 }
 
 .preview-caption {
@@ -1365,10 +1406,10 @@ svg {
   }
 
   .preview-stage {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(150px, 0.7fr);
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 20px;
+    gap: 12px;
   }
 
   .management-card {
@@ -1467,7 +1508,7 @@ svg {
   }
 
   .preview-stage {
-    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
   }
 
   .kiosk-screen {

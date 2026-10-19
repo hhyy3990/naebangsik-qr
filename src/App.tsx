@@ -333,7 +333,7 @@ function SettingsForm({
       />
       <ToggleRow
         title="천천히 안내받기"
-        description="스마트 길잡이를 15초 동안 보여드려요."
+        description="스마트 길잡이를 20초 동안 보여드려요."
         checked={preferences.slowGuidance}
         onChange={(value) => onPreferenceChange("slowGuidance", value)}
       />
@@ -378,6 +378,47 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
     "화면의 항목을 살펴보고 원하는 것을 눌러 주세요.",
     "다음 버튼을 눌러 이어서 진행해 주세요.",
   ];
+  const guidancePanel = guideVisible ? (
+    <section
+      className={`preview-guide-card smart contrast-${preferences.contrast}`}
+      data-testid="preview-smart-guide"
+      role="status"
+      aria-live="polite"
+      aria-label="스마트 길잡이 안내"
+    >
+      <div className="preview-guide-copy">
+        <strong>스마트 길잡이</strong>
+        <span>{guidePages[guidePage]}</span>
+      </div>
+      <button
+        className="smart-guide-close"
+        type="button"
+        aria-label="스마트 길잡이 닫기"
+        onClick={() => {
+          guideTimers.current.forEach(window.clearTimeout);
+          guideTimers.current = [];
+          setGuideVisible(false);
+        }}
+      >
+        <X size={18} aria-hidden="true" />
+      </button>
+    </section>
+  ) : preferences.easyLanguage ? (
+    <section
+      className={`preview-guide-card easy contrast-${preferences.contrast}`}
+      data-testid="preview-easy-guide"
+      aria-label="쉬운 말 안내 체험"
+    >
+      <strong className="preview-guide-title">쉬운 말 안내</strong>
+      <div className="easy-guide-copy" aria-live="polite">{easyPages[easyPage]}</div>
+      <div className="easy-guide-controls">
+        <button type="button" disabled={easyPage === 0} onClick={() => setEasyPage((page) => Math.max(0, page - 1))}>이전</button>
+        <span aria-live="polite">{easyPage + 1}/{easyPages.length}</span>
+        <button type="button" disabled={easyPage === easyPages.length - 1} onClick={() => setEasyPage((page) => Math.min(easyPages.length - 1, page + 1))}>다음</button>
+      </div>
+    </section>
+  ) : null;
+  const externalGuideSlot = viewportPercent === 100 && preferences.smartGuide;
 
   useEffect(() => {
     if (!preferences.smartGuide) {
@@ -423,14 +464,20 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
         <span className="preview-live">바로 반영</span>
       </div>
       <div className="preview-stage">
+        {externalGuideSlot && guideVisible && (
+          <div className="preview-guide-slot" role="region" aria-label="스마트 길잡이 표시 영역">
+            {guidancePanel}
+          </div>
+        )}
           <div className={classNames}>
             {viewportPercent < 100 && (
               <div
                 className="kiosk-unused-region"
                 style={{ flexBasis: `${100 - viewportPercent}%` }}
-                aria-hidden="true"
+              role="region"
+              aria-label="키오스크 화면 상단 안내 영역"
               >
-                사용하지 않는 위쪽 영역
+              {guidancePanel}
               </div>
             )}
             <div
@@ -450,16 +497,6 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
                 <h4>무엇을 도와드릴까요?</h4>
                 <p>안내 언어 · {languageLabels[preferences.language]}</p>
                 <p>원하는 항목을 선택해 주세요.</p>
-                {preferences.easyLanguage && (
-                  <section className="easy-guide-preview" aria-label="쉬운 말 안내 체험">
-                    <div className="easy-guide-copy" aria-live="polite">{easyPages[easyPage]}</div>
-                    <div className="easy-guide-controls">
-                      <button type="button" disabled={easyPage === 0} onClick={() => setEasyPage((page) => Math.max(0, page - 1))}>이전</button>
-                      <span>{easyPage + 1}/{easyPages.length}</span>
-                      <button type="button" disabled={easyPage === easyPages.length - 1} onClick={() => setEasyPage((page) => Math.min(easyPages.length - 1, page + 1))}>다음</button>
-                    </div>
-                  </section>
-                )}
                 <div className="kiosk-options">
                   {options.map((option) => (
                     <div className="kiosk-option" key={option}>
@@ -479,24 +516,6 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
                 </div>
               </div>
             </div>
-            {guideVisible && (
-              <div className="smart-guide-preview" role="status" aria-live="polite">
-                <button
-                  className="smart-guide-close"
-                  type="button"
-                  aria-label="스마트 길잡이 닫기"
-                  onClick={() => {
-                    guideTimers.current.forEach(window.clearTimeout);
-                    guideTimers.current = [];
-                    setGuideVisible(false);
-                  }}
-                >
-                  <X size={18} aria-hidden="true" />
-                </button>
-                <strong>다음에는 원하는 항목을 눌러 주세요.</strong>
-                <span>{guidePages[guidePage]}</span>
-              </div>
-            )}
         </div>
         <p className="preview-caption">
           {viewportPercent === 100
