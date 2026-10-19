@@ -3,3 +3,4 @@
 - [QR prototype rollout](qr-prototype-rollout.md) — user says this central service is pre-launch and old QR/SDK compatibility is not required; verify test-data status before destructive changes.
 - [QR profile schema evolution](qr-profile-schema-evolution.md) — normalize v1/v2 preferences to the current API shape on read; avoid bulk rewriting existing profile data.
 - [OpenAI recommendation privacy](openai-recommendation-privacy.md) — keep AI answers out of app storage and disclose provider-side abuse-log retention even when Responses storage is disabled.
+- [Scroll-guidance rollout](scroll-guidance-rollout.md) — the planned “아래쪽 내용 안내” preference is opt-in and must default OFF across QR, legacy reads, and no-QR use.
