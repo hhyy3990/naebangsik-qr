@@ -633,7 +633,10 @@ svg {
   --kiosk-label-weight: 700;
   --kiosk-button-weight: 700;
   display: flex;
-  height: 360px;
+  position: relative;
+  width: min(100%, 292px);
+  aspect-ratio: 9 / 16;
+  margin-inline: auto;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #d5dcdd;
@@ -694,14 +697,17 @@ svg {
 
 .kiosk-usable-region {
   min-height: 0;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .kiosk-inner {
   min-height: 100%;
   padding: 19px;
+  display: flex;
+  flex-direction: column;
 }
 
 .kiosk-header {
@@ -739,10 +745,6 @@ svg {
 .kiosk-screen.contrast-high p,
 .kiosk-screen.contrast-high .kiosk-header span:last-child {
   color: #222a32;
-}
-
-.kiosk-screen.easy-language p::after {
-  content: " 천천히 골라도 괜찮아요.";
 }
 
 .kiosk-options {
@@ -808,14 +810,16 @@ svg {
 
 .kiosk-footer {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
   padding: 12px 18px 17px;
   background: #f6f8fa;
 }
 
-.kiosk-footer span {
+.kiosk-footer button {
   flex: 1;
   min-height: 34px;
+  border: 0;
   overflow-wrap: anywhere;
   border-radius: 9px;
   padding: 8px;
@@ -824,9 +828,10 @@ svg {
   text-align: center;
   font-size: 11px;
   font-weight: var(--kiosk-button-weight);
+  cursor: pointer;
 }
 
-.kiosk-footer span:first-child {
+.kiosk-footer button:first-child {
   color: #344a63;
   background: #e4eaf0;
 }
@@ -835,15 +840,115 @@ svg {
   background: #fffdf5;
 }
 
-.kiosk-screen.contrast-high .kiosk-footer span {
+.kiosk-screen.contrast-high .kiosk-footer button {
   border: 2px solid #111820;
   color: #fffdf5;
   background: #111820;
 }
 
-.kiosk-screen.contrast-high .kiosk-footer span:first-child {
+.kiosk-screen.contrast-high .kiosk-footer button:first-child {
   color: #111820;
   background: #fffdf5;
+}
+
+.easy-guide-preview {
+  margin: 8px 0 14px;
+  border: 1px solid #b8cde5;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f1f6fc;
+}
+
+.easy-guide-copy {
+  min-height: 3.2em;
+  font-size: calc(12px * var(--kiosk-scale));
+  font-weight: var(--kiosk-label-weight);
+  line-height: 1.5;
+}
+
+.easy-guide-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.easy-guide-controls button,
+.smart-guide-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #7c97b7;
+  border-radius: 8px;
+  color: #20324c;
+  background: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.easy-guide-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kiosk-sample-copy {
+  margin-top: 14px !important;
+}
+
+.scroll-guidance-preview {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  margin-top: auto;
+  border: 1px solid #647f9e;
+  border-radius: 8px;
+  padding: 8px;
+  color: #20324c;
+  background: #fff7cf;
+  font-size: calc(11px * var(--kiosk-scale));
+  font-weight: 700;
+}
+
+.smart-guide-preview {
+  position: absolute;
+  z-index: 3;
+  inset: 36% 12px auto;
+  display: grid;
+  gap: 8px;
+  border: 2px solid #20324c;
+  border-radius: 12px;
+  padding: 44px 12px 14px;
+  color: #17263a;
+  background: #fff7cf;
+  box-shadow: 0 8px 24px rgba(15, 28, 44, 0.25);
+  font-size: calc(13px * var(--kiosk-scale));
+  line-height: 1.5;
+}
+
+.smart-guide-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+}
+
+.preview-help {
+  display: block;
+  margin-top: 5px;
+}
+
+.kiosk-screen.contrast-high .easy-guide-preview,
+.kiosk-screen.contrast-high .scroll-guidance-preview,
+.kiosk-screen.contrast-high .smart-guide-preview {
+  border-color: #111820;
+  color: #111820;
+}
+
+.kiosk-screen.contrast-high .easy-guide-preview,
+.kiosk-screen.contrast-high .smart-guide-preview {
+  background: #fff7cf;
 }
 
 .preview-caption {
@@ -1367,6 +1472,7 @@ svg {
 
   .kiosk-screen {
     width: 100%;
+    max-width: 292px;
   }
 
   .qr-card {

@@ -17,6 +17,7 @@ const input: RecommendationInput = {
   preferredLanguage: "ko",
   visualIssues: ["smallText", "topOutOfReach"],
   usageIssues: ["difficultWords"],
+  scrollGuidance: null,
   freeText: "작은 글씨는 불편하지만 설명은 짧은 게 좋아요.",
 };
 
@@ -33,6 +34,7 @@ const result: RecommendationResult = {
     stepByStepGuidance: false,
     conciseGuidance: false,
     slowGuidance: false,
+    scrollGuidance: false,
     viewportMode: { mode: "bottom", heightPercent: 70 },
   },
   reasons: [
@@ -54,7 +56,7 @@ test("recommendation rejects sensitive free text before any model call", () => {
   assert.throws(() => validateRecommendation({ ...input, freeText: "주민등록번호를 입력할게요" }), /SENSITIVE_INPUT/);
 });
 
-test("recommendation output is strict, current-v4 only, and rejects unsupported claims", () => {
+test("recommendation output is strict, current-v5 only, and rejects unsupported claims", () => {
   assert.deepEqual(parseRecommendationOutput(modelResult, input), result);
   assert.throws(() => parseRecommendationOutput({
     ...modelResult,
@@ -75,6 +77,7 @@ test("80대 이상과 작은 글씨 불편에는 extraLarge를 적용하고 이�
     preferredLanguage: "ko",
     visualIssues: ["smallText"],
     usageIssues: [],
+    scrollGuidance: null,
     freeText: null,
   };
   const modelLarge = {
@@ -113,6 +116,7 @@ test("AI recommendation saves selected language and distinct guidance preference
     preferredLanguage: "ja",
     visualIssues: [],
     usageIssues: ["unsureSteps", "needsMoreTime"],
+    scrollGuidance: null,
     freeText: null,
   };
   const recommendation = parseRecommendationOutput({
@@ -133,6 +137,30 @@ test("AI recommendation saves selected language and distinct guidance preference
   assert.equal(recommendation.preferences.stepByStepGuidance, true);
   assert.equal(recommendation.preferences.slowGuidance, true);
   assert.equal(recommendation.preferences.guideDelaySeconds, 20);
+});
+
+test("scroll guidance recommendation follows yes/no and defaults off when unanswered", () => {
+  const yesInput = { ...input, scrollGuidance: true };
+  const yesOutput = {
+    ...modelResult,
+    preferences: { ...result.preferences, scrollGuidance: false },
+    reasons: [
+      { text: "아래쪽 내용 안내를 켰어요.", basedOn: ["scrollGuidance"] },
+      modelResult.reasons[1],
+    ],
+  };
+  const yes = parseRecommendationOutput(yesOutput, yesInput);
+  const no = parseRecommendationOutput({
+    ...modelResult,
+    preferences: { ...result.preferences, scrollGuidance: true },
+  }, { ...input, scrollGuidance: false });
+  const unanswered = parseRecommendationOutput({
+    ...modelResult,
+    preferences: { ...result.preferences, scrollGuidance: true },
+  }, { ...input, scrollGuidance: null });
+  assert.equal(yes.preferences.scrollGuidance, true);
+  assert.equal(no.preferences.scrollGuidance, false);
+  assert.equal(unanswered.preferences.scrollGuidance, false);
 });
 
 test("OpenAI request disables response storage and validates structured response", async () => {

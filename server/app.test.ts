@@ -28,6 +28,7 @@ const preferences = {
   stepByStepGuidance: false,
   conciseGuidance: false,
   slowGuidance: false,
+  scrollGuidance: false,
 };
 
 after(async () => {
@@ -37,7 +38,7 @@ after(async () => {
   await pool.end();
 });
 
-test("profile API creates v4 profiles and normalizes legacy settings without losing QR management", async () => {
+test("profile API creates v5 profiles and normalizes legacy settings without losing QR management", async () => {
   const oldFieldRequest = await request(app)
     .post("/api/profiles")
     .set(testHeader)
@@ -62,6 +63,23 @@ test("profile API creates v4 profiles and normalizes legacy settings without los
       preferences: { ...preferences, language: "fr" },
     });
   assert.equal(invalidLanguageRequest.status, 400);
+  const invalidScrollGuidance = await request(app)
+    .post("/api/profiles")
+    .set(testHeader)
+    .send({
+      schemaVersion: PROFILE_SCHEMA_VERSION,
+      preferences: { ...preferences, scrollGuidance: "on" },
+    });
+  assert.equal(invalidScrollGuidance.status, 400);
+
+  const { scrollGuidance: _scrollGuidance, ...preferencesWithoutScrollGuidance } = preferences;
+  const omittedScrollGuidance = await request(app)
+    .post("/api/profiles")
+    .set(testHeader)
+    .send({ schemaVersion: PROFILE_SCHEMA_VERSION, preferences: preferencesWithoutScrollGuidance });
+  assert.equal(omittedScrollGuidance.status, 201);
+  testProfileIds.push(omittedScrollGuidance.body.id);
+  assert.equal(omittedScrollGuidance.body.preferences.scrollGuidance, false);
 
   for (const invalidMode of [
     { mode: "bottom", heightPercent: 59 },
@@ -101,7 +119,7 @@ test("profile API creates v4 profiles and normalizes legacy settings without los
   await pool.query(
     `UPDATE profiles
      SET schema_version = 2,
-         preferences = (preferences - 'viewportMode' - 'language' - 'stepByStepGuidance' - 'conciseGuidance' - 'slowGuidance') || $1::jsonb
+     preferences = (preferences - 'viewportMode' - 'language' - 'stepByStepGuidance' - 'conciseGuidance' - 'slowGuidance' - 'scrollGuidance') || $1::jsonb
      WHERE id = $2 AND is_test = true`,
     [JSON.stringify({ bottomControls: true, simplifiedLayout: true }), created.id],
   );
@@ -127,7 +145,7 @@ test("profile API creates v4 profiles and normalizes legacy settings without los
   await pool.query(
     `UPDATE profiles
      SET schema_version = 3,
-         preferences = (preferences - 'language' - 'stepByStepGuidance' - 'conciseGuidance' - 'slowGuidance') || $1::jsonb
+     preferences = (preferences - 'language' - 'stepByStepGuidance' - 'conciseGuidance' - 'slowGuidance' - 'scrollGuidance') || $1::jsonb
      WHERE id = $2 AND is_test = true`,
     [JSON.stringify({ viewportMode: preferences.viewportMode }), created.id],
   );
@@ -155,7 +173,7 @@ test("profile API creates v4 profiles and normalizes legacy settings without los
 
   await pool.query(
     `UPDATE profiles SET schema_version = 1,
-      preferences = (preferences - 'viewportMode') || '{"bottomControls": true}'::jsonb
+      preferences = (preferences - 'viewportMode' - 'scrollGuidance') || '{"bottomControls": true}'::jsonb
       WHERE id = $1 AND is_test = true`,
     [created.id],
   );
@@ -270,6 +288,7 @@ test("profile API creates v4 profiles and normalizes legacy settings without los
     ...preferences,
     viewportMode: { mode: "bottom" as const, heightPercent: 60 as const },
     voiceGuidance: true,
+    scrollGuidance: true,
   };
   const tokenHashBeforeSettingsUpdate = await pool.query<{ token_hash: string }>(
     "SELECT token_hash FROM profiles WHERE id = $1 AND is_test = true",

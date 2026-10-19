@@ -27,6 +27,7 @@ const preferenceFields = {
   stepByStepGuidance: z.boolean(),
   conciseGuidance: z.boolean(),
   slowGuidance: z.boolean(),
+  scrollGuidance: z.boolean(),
 };
 
 const viewportModeSchema = z.union([
@@ -48,10 +49,15 @@ const legacyPreferencesSchema = z.object({
   stepByStepGuidance: z.boolean().optional(),
   conciseGuidance: z.boolean().optional(),
   slowGuidance: z.boolean().optional(),
+  scrollGuidance: z.boolean().optional(),
   bottomControls: z.boolean().optional(),
 }).passthrough();
 
-const requestPreferencesSchema = preferencesSchema.strict();
+const requestPreferencesSchema = z.object({
+  ...preferenceFields,
+  viewportMode: viewportModeSchema,
+  scrollGuidance: z.boolean().optional(),
+}).strict();
 
 const settingsPayloadSchema = z.object({
   schemaVersion: z.literal(PROFILE_SCHEMA_VERSION),
@@ -86,6 +92,7 @@ const storedPreferences = (value: unknown) => {
     stepByStepGuidance: legacy.stepByStepGuidance ?? false,
     conciseGuidance: legacy.conciseGuidance ?? false,
     slowGuidance: legacy.slowGuidance ?? false,
+    scrollGuidance: legacy.scrollGuidance ?? false,
   };
 };
 
@@ -244,6 +251,7 @@ export function createApp(
   app.post("/api/profiles", asyncRoute(async (req, res) => {
     const parsed = settingsPayloadSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, "접근성 설정을 확인해 주세요.");
+    const preferences = { ...parsed.data.preferences, scrollGuidance: parsed.data.preferences.scrollGuidance ?? false };
 
     const token = createToken("mqr_");
     const managementKey = createToken("mqm_");
@@ -256,7 +264,7 @@ export function createApp(
       [
         id,
         PROFILE_SCHEMA_VERSION,
-        JSON.stringify(parsed.data.preferences),
+        JSON.stringify(preferences),
         hash(token),
         hash(managementKey),
         isTest,
@@ -268,7 +276,7 @@ export function createApp(
       token,
       managementKey,
       schemaVersion: PROFILE_SCHEMA_VERSION,
-      preferences: parsed.data.preferences,
+      preferences,
       createdAt: new Date(result.rows[0].created_at).toISOString(),
     });
   }));
@@ -314,6 +322,7 @@ export function createApp(
   app.patch("/api/profiles/:id", asyncRoute(async (req, res) => {
     const parsed = settingsPayloadSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, "접근성 설정을 확인해 주세요.");
+    const preferences = { ...parsed.data.preferences, scrollGuidance: parsed.data.preferences.scrollGuidance ?? false };
     const existing = await pool.query(
       `SELECT management_key_hash FROM profiles WHERE id = $1 AND is_test = $2`,
       [req.params.id, isTestRequest(req)],
@@ -327,7 +336,7 @@ export function createApp(
       `UPDATE profiles SET preferences = $1::jsonb, schema_version = $4, updated_at = now()
        WHERE id = $2 AND is_test = $3
        RETURNING id, schema_version, preferences, updated_at, revoked_at`,
-      [JSON.stringify(parsed.data.preferences), req.params.id, isTestRequest(req), PROFILE_SCHEMA_VERSION],
+      [JSON.stringify(preferences), req.params.id, isTestRequest(req), PROFILE_SCHEMA_VERSION],
     );
     const updated = result.rows[0];
     return res.json({

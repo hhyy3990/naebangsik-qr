@@ -29,6 +29,7 @@ type FormAnswers = {
   preferredLanguage: LanguageId | "";
   visualIssues: VisualIssueId[];
   usageIssues: UsageIssueId[];
+  scrollGuidance: "" | "yes" | "no";
   freeText: string;
 };
 
@@ -68,6 +69,7 @@ const emptyAnswers: FormAnswers = {
   preferredLanguage: "",
   visualIssues: [],
   usageIssues: [],
+  scrollGuidance: "",
   freeText: "",
 };
 
@@ -165,6 +167,7 @@ export default function AIRecommendationFlow({
           preferredLanguage: answers.preferredLanguage || null,
           visualIssues: answers.visualIssues,
           usageIssues: answers.usageIssues,
+          scrollGuidance: answers.scrollGuidance === "yes" ? true : answers.scrollGuidance === "no" ? false : null,
           freeText: answers.freeText.trim() || null,
         }),
       });
@@ -364,6 +367,28 @@ export default function AIRecommendationFlow({
                     }
                   />
                   <span className="air-choice-indicator" aria-hidden="true"><Check size={14} /></span>
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="air-question">
+            <legend>⑤ 화면 아래에 더 볼 내용이 있다는 안내가 필요하신가요?</legend>
+            <div className="air-option-grid">
+              {[
+                { label: "네, 필요해요.", value: "yes" as const },
+                { label: "아니요, 필요하지 않아요.", value: "no" as const },
+              ].map((option) => (
+                <label className="air-choice" key={option.value}>
+                  <input
+                    type="radio"
+                    name="air-scroll-guidance"
+                    value={option.value}
+                    checked={answers.scrollGuidance === option.value}
+                    onChange={() => setAnswers((current) => ({ ...current, scrollGuidance: option.value }))}
+                  />
+                  <span className="air-choice-indicator" aria-hidden="true" />
                   <span>{option.label}</span>
                 </label>
               ))}

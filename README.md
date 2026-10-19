@@ -32,15 +32,15 @@ API 테스트는 실제 사용자 프로필과 구분되는 `is_test` 데이터�
 
 ## API
 
-모든 신규 접근성 설정 요청과 프로필에는 `schemaVersion: 4`가 포함됩니다. 하단 조작 모드는 `viewportMode`에 사용하지 않음 또는 60·70·80%로 저장됩니다. 기존 v1/v2/v3 프로필은 QR 토큰과 저장 데이터를 유지하며, 조회 응답에서는 구버전 하단 조작 설정을 `viewportMode: null`로 정규화하고 v4 신규 값은 안전한 기본값으로 채웁니다. 조회만으로 기존 데이터를 수정하거나 버전을 올리지 않습니다.
+모든 신규 접근성 설정 요청과 프로필에는 `schemaVersion: 5`가 포함됩니다. 하단 조작 모드는 `viewportMode`에 사용하지 않음 또는 60·70·80%로 저장됩니다. 기존 v1~v4 프로필은 QR 토큰과 저장 데이터를 유지하며, 조회 응답에서는 구버전 하단 조작 설정을 `viewportMode: null`로 정규화하고 이후 버전에서 추가된 값은 안전한 기본값으로 채웁니다. `scrollGuidance`가 없으면 `false`로 처리합니다. 조회만으로 기존 데이터를 수정하거나 버전을 올리지 않습니다.
 
-### QR 프로필 v4 SDK 계약
+### QR 프로필 v5 SDK 계약
 
-`POST /api/profiles/resolve` 성공 응답은 `{ "schemaVersion": 4, "preferences": { ... }, "updatedAt": "ISO-8601" }` 모양입니다. 토큰은 요청에만 쓰이며 응답에는 포함되지 않습니다. `preferences`에는 아래의 v3 설정 필드와 v4 필드가 포함됩니다.
+`POST /api/profiles/resolve` 성공 응답은 `{ "schemaVersion": 5, "preferences": { ... }, "updatedAt": "ISO-8601" }` 모양입니다. 토큰은 요청에만 쓰이며 응답에는 포함되지 않습니다. `preferences`에는 기존 설정과 v4·v5 설정 필드가 포함됩니다.
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "preferences": {
     "textSize": "standard",
     "buttonSize": "standard",
@@ -53,13 +53,14 @@ API 테스트는 실제 사용자 프로필과 구분되는 `is_test` 데이터�
     "language": "ko",
     "stepByStepGuidance": false,
     "conciseGuidance": false,
-    "slowGuidance": false
+    "slowGuidance": false,
+    "scrollGuidance": false
   },
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
 
-`language`는 `ko | zh | vi | en | th | uz | ja` 중 하나이며 기본값은 `ko`; `stepByStepGuidance`, `conciseGuidance`, `slowGuidance`는 boolean이고 기본값은 모두 `false`입니다. `guideDelaySeconds`는 스마트 길잡이가 시작되기 전 대기 시간(10/15/20초)이며 `slowGuidance`는 표시 후 15초 유지 선호로 서로 다른 설정입니다. 기존 v1~v3 프로필은 읽을 때 언어를 `ko`, 신규 안내 선호를 `false`로 정규화하며, 저장 JSONB·QR 토큰은 변경하지 않습니다. v4 필드를 무시하는 구형 SDK가 신규 설정을 반영하지 않을 수 있으므로 SDK 버전을 확인한 뒤 적용해야 합니다. 현재 중앙 서비스에 값을 저장하는 것만으로 키오스크 기능이 이미 지원된다고 보장하지 않습니다.
+`language`는 `ko | zh | vi | en | th | uz | ja` 중 하나이며 기본값은 `ko`; `stepByStepGuidance`, `conciseGuidance`, `slowGuidance`, `scrollGuidance`는 boolean이고 기본값은 모두 `false`입니다. `scrollGuidance`는 명시적으로 `true`일 때만 아래쪽 내용 안내를 켭니다. 기존 v1~v4 프로필에서 필드가 없으면 `false`로 정규화하며 저장 JSONB·QR 토큰은 변경하지 않습니다. `guideDelaySeconds`는 스마트 길잡이가 시작되기 전 대기 시간(10/15/20초)이며 `slowGuidance`는 표시 후 15초 유지 선호로 서로 다른 설정입니다. 새 필드를 무시하는 구형 SDK가 설정을 반영하지 않을 수 있으므로 SDK 버전을 확인한 뒤 적용해야 합니다. 중앙 서비스에 값을 저장하는 것만으로 키오스크 기능이 이미 지원된다고 보장하지 않습니다.
 
 - `GET /api/public-config` — Preview 또는 공개 배포의 QR 주소 기준 확인
 - `POST /api/profiles` — 프로필과 QR 조회 토큰, 별도 관리 코드를 생성

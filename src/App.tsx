@@ -18,6 +18,7 @@ import {
   Sparkles,
   Type,
   Volume2,
+  X,
 } from "lucide-react";
 import AIRecommendationFlow from "./AIRecommendationFlow";
 import {
@@ -60,6 +61,7 @@ const DEFAULT_PREFERENCES: ProfilePreferences = {
   stepByStepGuidance: false,
   conciseGuidance: false,
   slowGuidance: false,
+  scrollGuidance: false,
 };
 
 const languageLabels: Record<(typeof PROFILE_LANGUAGES)[number], string> = {
@@ -335,6 +337,12 @@ function SettingsForm({
         checked={preferences.slowGuidance}
         onChange={(value) => onPreferenceChange("slowGuidance", value)}
       />
+      <ToggleRow
+        title="아래쪽 내용 안내"
+        description="화면 아래에 더 볼 내용이 있으면 알려줘요. 끝까지 내리면 안내가 사라져요."
+        checked={preferences.scrollGuidance}
+        onChange={(value) => onPreferenceChange("scrollGuidance", value)}
+      />
       {!preferences.smartGuide && (
         <p className="setting-note">천천히 안내받기는 스마트 길잡이를 켰을 때 사용할 수 있어요. 지금 선택한 값은 저장됩니다.</p>
       )}
@@ -344,7 +352,13 @@ function SettingsForm({
 }
 
 function Preview({ preferences }: { preferences: ProfilePreferences }) {
-  const viewportPercent = preferences.viewportMode?.heightPercent ?? 100;
+  const viewportPercent = preferences.viewportMode?.heightPercent ?? (preferences.easyLanguage ? 80 : 100);
+  const [easyPage, setEasyPage] = useState(0);
+  const [guideVisible, setGuideVisible] = useState(false);
+  const [guidePage, setGuidePage] = useState(0);
+  const [hasMoreScroll, setHasMoreScroll] = useState(false);
+  const scrollRegion = useRef<HTMLDivElement>(null);
+  const guideTimers = useRef<number[]>([]);
   const classNames = [
     "kiosk-screen",
     `text-${preferences.textSize}`,
@@ -355,6 +369,53 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
     .filter(Boolean)
     .join(" ");
   const options = ["메뉴 보기", "주문 조회", "직원 도움 요청"];
+  const easyPages = [
+    "화면의 항목을 천천히 살펴보세요.",
+    "원하는 항목을 누르면 다음 화면으로 이동해요.",
+    "다음 버튼을 눌러 이어지는 설명을 읽어보세요.",
+  ];
+  const guidePages = [
+    "화면의 항목을 살펴보고 원하는 것을 눌러 주세요.",
+    "다음 버튼을 눌러 이어서 진행해 주세요.",
+  ];
+
+  useEffect(() => {
+    if (!preferences.smartGuide) {
+      guideTimers.current.forEach(window.clearTimeout);
+      guideTimers.current = [];
+      setGuideVisible(false);
+      setGuidePage(0);
+      return;
+    }
+    const startTimer = window.setTimeout(() => {
+      setGuidePage(0);
+      setGuideVisible(true);
+      const duration = preferences.slowGuidance ? 20_000 : 15_000;
+      guideTimers.current.push(
+        window.setTimeout(() => setGuidePage(1), duration / 2),
+        window.setTimeout(() => setGuideVisible(false), duration),
+      );
+    }, preferences.guideDelaySeconds * 1000);
+    guideTimers.current = [startTimer];
+    return () => {
+      guideTimers.current.forEach(window.clearTimeout);
+      guideTimers.current = [];
+    };
+  }, [preferences.smartGuide]);
+
+  useEffect(() => {
+    const region = scrollRegion.current;
+    if (!region) return;
+    const updateScrollState = () => {
+      const canScroll = region.scrollHeight > region.clientHeight + 2;
+      setHasMoreScroll(canScroll && region.scrollTop + region.clientHeight < region.scrollHeight - 2);
+    };
+    updateScrollState();
+    const observer = new ResizeObserver(updateScrollState);
+    observer.observe(region);
+    if (region.firstElementChild) observer.observe(region.firstElementChild);
+    return () => observer.disconnect();
+  }, [preferences, viewportPercent]);
   return (
     <aside className="panel preview-panel" aria-label="설정 미리보기">
       <div className="preview-head">
@@ -366,13 +427,21 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
             {viewportPercent < 100 && (
               <div
                 className="kiosk-unused-region"
-                style={{ height: `${100 - viewportPercent}%` }}
+                style={{ flexBasis: `${100 - viewportPercent}%` }}
                 aria-hidden="true"
               >
                 사용하지 않는 위쪽 영역
               </div>
             )}
-            <div className="kiosk-usable-region" style={{ height: `${viewportPercent}%` }}>
+            <div
+              className="kiosk-usable-region"
+              ref={scrollRegion}
+              onScroll={(event) => {
+                const region = event.currentTarget;
+                const canScroll = region.scrollHeight > region.clientHeight + 2;
+                setHasMoreScroll(canScroll && region.scrollTop + region.clientHeight < region.scrollHeight - 2);
+              }}
+            >
               <div className="kiosk-inner">
                 <div className="kiosk-header">
                   <span>이음 키오스크</span>
@@ -381,6 +450,16 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
                 <h4>무엇을 도와드릴까요?</h4>
                 <p>안내 언어 · {languageLabels[preferences.language]}</p>
                 <p>원하는 항목을 선택해 주세요.</p>
+                {preferences.easyLanguage && (
+                  <section className="easy-guide-preview" aria-label="쉬운 말 안내 체험">
+                    <div className="easy-guide-copy" aria-live="polite">{easyPages[easyPage]}</div>
+                    <div className="easy-guide-controls">
+                      <button type="button" disabled={easyPage === 0} onClick={() => setEasyPage((page) => Math.max(0, page - 1))}>이전</button>
+                      <span>{easyPage + 1}/{easyPages.length}</span>
+                      <button type="button" disabled={easyPage === easyPages.length - 1} onClick={() => setEasyPage((page) => Math.min(easyPages.length - 1, page + 1))}>다음</button>
+                    </div>
+                  </section>
+                )}
                 <div className="kiosk-options">
                   {options.map((option) => (
                     <div className="kiosk-option" key={option}>
@@ -389,22 +468,42 @@ function Preview({ preferences }: { preferences: ProfilePreferences }) {
                     </div>
                   ))}
                 </div>
-                {preferences.smartGuide && (
-                  <p className="guide-preview-message">
-                    {preferences.guideDelaySeconds}초 동안 기다리면 길잡이가 안내해요.
-                  </p>
+                <p className="kiosk-sample-copy">화면 아래에도 살펴볼 내용이 있어요. 필요한 내용을 확인하고 다음으로 이동할 수 있어요.</p>
+                <p className="kiosk-sample-copy">설정은 언제든 바꿀 수 있어요. 화면을 천천히 살펴보고 편한 방법을 골라 보세요.</p>
+                {preferences.scrollGuidance && hasMoreScroll && (
+                  <div className="scroll-guidance-preview" role="status">화면 아래에 더 볼 내용이 있어요. 아래로 내려 보세요.</div>
                 )}
                 <div className="kiosk-footer">
-                  <span>이전</span>
-                  <span>다음</span>
+                  <button type="button">이전</button>
+                  <button type="button">다음</button>
                 </div>
               </div>
             </div>
+            {guideVisible && (
+              <div className="smart-guide-preview" role="status" aria-live="polite">
+                <button
+                  className="smart-guide-close"
+                  type="button"
+                  aria-label="스마트 길잡이 닫기"
+                  onClick={() => {
+                    guideTimers.current.forEach(window.clearTimeout);
+                    guideTimers.current = [];
+                    setGuideVisible(false);
+                  }}
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+                <strong>다음에는 원하는 항목을 눌러 주세요.</strong>
+                <span>{guidePages[guidePage]}</span>
+              </div>
+            )}
         </div>
         <p className="preview-caption">
           {viewportPercent === 100
             ? "전체 높이를 사용하는 미리보기예요."
             : `아래쪽 ${viewportPercent}% 영역 안에서 조작하고 스크롤하는 모습을 표시해요. 실제 키오스크 적용 화면과 다를 수 있습니다.`}
+          {preferences.smartGuide && <span className="preview-help">스마트 길잡이가 나타나면 X 버튼을 눌러 닫아보세요. 닫으면 읽던 쉬운 말 안내로 돌아와요.</span>}
+          {preferences.scrollGuidance && <span className="preview-help">화면을 끝까지 내리면 아래쪽 내용 안내가 사라져요.</span>}
         </p>
       </div>
     </aside>
@@ -1080,6 +1179,7 @@ function PreferenceSummary({ preferences }: { preferences: ProfilePreferences })
     { label: "쉬운 말", value: preferences.easyLanguage ? "사용" : "사용 안 함", icon: Check },
     { label: "하단 조작 모드", value: preferences.viewportMode ? `아래쪽 ${preferences.viewportMode.heightPercent}%` : "사용하지 않음", icon: ArrowDownToLine },
     { label: "스마트 길잡이", value: preferences.smartGuide ? `사용 · ${preferences.guideDelaySeconds}초 후` : "사용 안 함", icon: CircleHelp },
+    { label: "아래쪽 내용 안내", value: preferences.scrollGuidance ? "사용" : "사용 안 함", icon: ArrowDownToLine },
     { label: "음성 안내", value: preferences.voiceGuidance ? "사용" : "사용 안 함", icon: Volume2 },
   ];
   return (

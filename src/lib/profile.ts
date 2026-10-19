@@ -1,4 +1,4 @@
-export const PROFILE_SCHEMA_VERSION = 4 as const;
+export const PROFILE_SCHEMA_VERSION = 5 as const;
 
 export const PROFILE_LANGUAGES = ["ko", "zh", "vi", "en", "th", "uz", "ja"] as const;
 export type ProfileLanguage = (typeof PROFILE_LANGUAGES)[number];
@@ -23,9 +23,10 @@ export type ProfilePreferences = {
   stepByStepGuidance: boolean;
   conciseGuidance: boolean;
   slowGuidance: boolean;
+  scrollGuidance: boolean;
 };
 
-export type StoredProfileSchemaVersion = 1 | 2 | 3 | typeof PROFILE_SCHEMA_VERSION;
+export type StoredProfileSchemaVersion = 1 | 2 | 3 | 4 | typeof PROFILE_SCHEMA_VERSION;
 
 export type CreatedProfile = {
   id: string;
