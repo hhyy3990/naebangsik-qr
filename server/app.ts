@@ -10,6 +10,13 @@ import {
   validateRecommendation,
   type RecommendationGenerator,
 } from "./recommendation";
+import {
+  validateLayoutPlanRequest,
+  type LayoutPolicy,
+  type LayoutPlanGenerator,
+  type LayoutPlanRequest,
+} from "./layout-plan";
+import { generateLayoutPlan } from "./ai-layout";
 
 const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -145,9 +152,18 @@ function asyncRoute(
 export function createApp(
   pool: Pool,
   recommendationGenerator: RecommendationGenerator = recommendAccessibility,
+  layoutOptions: {
+    serviceToken?: string;
+    policies?: readonly LayoutPolicy[];
+    planGenerator?: LayoutPlanGenerator;
+    maxRequestsPerHost?: number;
+  } = {},
 ) {
   const app = express();
   const recommendationAttempts = new Map<string, { count: number; resetAt: number }>();
+  const layoutAttempts = new Map<string, { count: number; resetAt: number }>();
+  const layoutPolicies = layoutOptions.policies ?? [];
+  const layoutPlanGenerator = layoutOptions.planGenerator ?? generateLayoutPlan;
   const allowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "")
       .split(",")
@@ -245,6 +261,63 @@ export function createApp(
         return fail(res, 503, "AI 추천을 준비 중이에요. 직접 설정하기를 이용해 주세요.");
       }
       return fail(res, 502, "추천을 만들지 못했어요. 다시 시도하거나 직접 설정해 주세요.");
+    }
+  }));
+
+  app.post("/api/ai-layout/plan", asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
+    if (!expectedToken) return fail(res, 503, "화면 구성 계획 API가 아직 설정되지 않았어요.");
+
+    const authorization = req.get("authorization") ?? "";
+    const match = /^Bearer ([^\s]+)$/.exec(authorization);
+    const provided = match?.[1] ?? "";
+    const expectedBuffer = Buffer.from(expectedToken);
+    const providedBuffer = Buffer.from(provided);
+    const authorized =
+      expectedBuffer.length === providedBuffer.length &&
+      timingSafeEqual(expectedBuffer, providedBuffer);
+    if (!authorized) return fail(res, 401, "인증이 필요합니다.");
+
+    let input: LayoutPlanRequest;
+    try {
+      input = validateLayoutPlanRequest(req.body, layoutPolicies);
+    } catch (error) {
+      if (error instanceof Error && error.message === "UNSUPPORTED_SCREEN") {
+        return fail(res, 404, "지원하지 않는 화면입니다.");
+      }
+      return fail(res, 400, "화면 구성 요청을 확인해 주세요.");
+    }
+    const policy = layoutPolicies.find(
+      (item) => item.hostAppId === input.hostAppId && item.screenId === input.screenId,
+    );
+    if (!policy) return fail(res, 404, "지원하지 않는 화면입니다.");
+
+    const now = Date.now();
+    const attempts = layoutAttempts.get(policy.hostAppId);
+    const limit = layoutOptions.maxRequestsPerHost ?? 10;
+    if (attempts && attempts.resetAt > now && attempts.count >= limit) {
+      res.setHeader("Retry-After", "600");
+      return fail(res, 429, "요청이 잠시 많아요. 잠시 후 다시 시도해 주세요.");
+    }
+    if (!attempts || attempts.resetAt <= now) {
+      layoutAttempts.set(policy.hostAppId, { count: 1, resetAt: now + 10 * 60_000 });
+    } else {
+      attempts.count += 1;
+    }
+    if (layoutAttempts.size > 2_000) {
+      for (const [key, value] of layoutAttempts) {
+        if (value.resetAt <= now) layoutAttempts.delete(key);
+      }
+    }
+
+    try {
+      return res.json(await layoutPlanGenerator(input, policy));
+    } catch (error) {
+      if (error instanceof Error && error.message === "AI_NOT_CONFIGURED") {
+        return fail(res, 503, "화면 구성 계획 API가 아직 설정되지 않았어요.");
+      }
+      return fail(res, 502, "화면 구성 계획을 만들지 못했어요. 기존 화면을 유지해 주세요.");
     }
   }));
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { Pool } from "pg";
 import { createApp } from "./app";
+import { registeredLayoutPolicies } from "./layout-policies";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const port = Number(process.env.PORT ?? 5000);
@@ -13,7 +14,7 @@ if (!process.env.DATABASE_URL) {
 }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const app = createApp(pool);
+const app = createApp(pool, undefined, { policies: registeredLayoutPolicies });
 
 async function start() {
   if (process.env.NODE_ENV === "production") {
