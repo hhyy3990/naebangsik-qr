@@ -1,0 +1,502 @@
+요청 범위대로 파일을 읽기만 하겠습니다. 해시·모델·검증 함수와 관련 테스트 및 React/CSS 적용 지점을 확인해, 중앙 서버 인터페이스는 추측하지 않고 소스에 있는 규칙과 예시만 한 문서로 정리하겠습니다.
+
+
+작업 16개
+DemoCoffee 메뉴 계약 v2 — 중앙 QR Agent 전달용
+확인 범위: 현재 src/accessibility/menuLayoutPlan.ts, 테스트, src/App.tsx, src/index.css를 읽어 정리했습니다. 이번 확인에서는 파일을 수정하지 않았습니다. 중앙 서버의 요청·응답 인터페이스는 소스에 정의되어 있지 않으므로 추측하지 않습니다.
+
+1. 해시 입력과 계산
+structureHash
+다음 문자열이 해시 입력 전체입니다. 배열 항목 순서와 "|" 구분자도 입력의 일부입니다.
+
+const STRUCTURE = [
+  "menu.v2",
+  "menu.product-list:ordered-repeated-items:menu.product-card;mutable:columns;preserve:items,order",
+  "menu.product-card:repeated-menu-item:menu.product-image,menu.product-information;mutable:flow,gap;preserve:child-order",
+  "menu.product-information:menu.product-name,menu.product-price,menu.product-description,menu.product-action",
+  "dom-binding:data-menu-layout-id",
+  "protected:menu.category-navigation,menu.fixed-controls,menu.product-content,menu.product-action.behavior",
+  "operations:setGroupColumns,setGroupFlow,setChildBasis",
+].join("|");
+실제 코드의 네 번째 문자열은 menu.product-card:repeated-item:...입니다. 아래 인용은 소스와 정확히 일치하는 값입니다.
+
+const STRUCTURE = [
+  "menu.v2",
+  "menu.product-list:ordered-repeated-items:menu.product-card;mutable:columns;preserve:items,order",
+  "menu.product-card:repeated-item:menu.product-image,menu.product-information;mutable:flow,gap;preserve:child-order",
+  "menu.product-information:menu.product-name,menu.product-price,menu.product-description,menu.product-action",
+  "dom-binding:data-menu-layout-id",
+  "protected:menu.category-navigation,menu.fixed-controls,menu.product-content,menu.product-action.behavior",
+  "operations:setGroupColumns,setGroupFlow,setChildBasis",
+].join("|");
+계산 함수는 다음과 같습니다.
+
+function hash(value: string): string {
+  let result = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    result ^= value.charCodeAt(index);
+    result = Math.imul(result, 0x01000193);
+  }
+  return (result >>> 0).toString(16).padStart(8, "0");
+}
+이는 코드에서 사용하는 FNV-1a 형태입니다. 정확히는 UTF-8 바이트가 아니라 JavaScript 문자열의 UTF-16 코드 단위(charCodeAt)를 순회합니다. 결과는 부호 없는 32비트 값의 소문자 16진수, 8자리입니다. 모든 모델에서 structureHash는 837f86b3입니다.
+
+constraintHash
+해시 입력은 JSON.stringify(constraints)의 결과입니다. 객체 키를 정렬하지 않습니다. 아래 선언 순서가 직렬화 순서입니다.
+
+const constraints: MenuLayoutConstraints = {
+  textScale: profile.textSize,
+  buttonScale: profile.buttonSize,
+  highContrast: profile.contrast === "high",
+  viewportModePercent: profile.viewportMode?.heightPercent ?? (profile.easyLanguage ? 80 : null),
+  defaultColumns,
+  allowedColumns,
+  minimumTouchTargetPx: 44,
+  preserveTopGuidance: true,
+  preserveFixedControls: true,
+};
+const constraintHash = hash(JSON.stringify(constraints));
+직접 포함되는 값: 글자 크기, 버튼 크기, 고대비 여부, 하단 뷰포트 높이, 기본·허용 열 수, 최소 터치 대상 크기, 안내·고정 컨트롤 보호 플래그.
+QR에 설정된 뷰포트 모드가 profile.viewportMode.heightPercent로 전달되면 viewportModePercent에 반영됩니다. 명시적 모드가 없고 easyLanguage가 참이면 80이 사용됩니다.
+QR 토큰·사용자 입력·주문 정보는 이 모델이나 해시 입력에 없습니다.
+화면 너비 자체는 제약 JSON에 들어가지 않습니다. 너비에서 계산한 defaultColumns와 allowedColumns가 간접적으로 해시에 반영되고, viewportClass는 모델 및 계획에 별도 필드로 있습니다.
+360px 표준 설정 해시: 207c8de6. 390px 표준 설정 해시: df5bb9a5.
+2. 모델 필드와 예시
+실제 모델 타입:
+
+export interface MenuScreenModel {
+  schemaVersion: 2;
+  hostId: "democoffee";
+  screenId: "cafe.menu";
+  structureVersion: "menu.v2";
+  structureHash: string;
+  constraintHash: string;
+  viewportClass: MenuViewportClass;
+  groups: readonly {
+    id: string;
+    role: string;
+    childIds: readonly string[];
+    preserveOrder: boolean;
+    mutableProperties: readonly string[];
+  }[];
+  requiredIds: readonly string[];
+  protectedProperties: readonly string[];
+  allowedOperations: readonly ("setGroupColumns" | "setGroupFlow" | "setChildBasis")[];
+  constraints: MenuLayoutConstraints;
+}
+390px 표준 프로필의 전체 모델 예시:
+
+{
+  "schemaVersion": 2,
+  "hostId": "democoffee",
+  "screenId": "cafe.menu",
+  "structureVersion": "menu.v2",
+  "structureHash": "837f86b3",
+  "constraintHash": "df5bb9a5",
+  "viewportClass": "regular",
+  "groups": [
+    {
+      "id": "menu.product-list",
+      "role": "ordered-menu-list",
+      "childIds": ["menu.product-card"],
+      "preserveOrder": true,
+      "mutableProperties": ["columns"]
+    },
+    {
+      "id": "menu.product-card",
+      "role": "repeated-menu-item",
+      "childIds": ["menu.product-image", "menu.product-information"],
+      "preserveOrder": true,
+      "mutableProperties": ["flow", "gap"]
+    },
+    {
+      "id": "menu.product-information",
+      "role": "product-information",
+      "childIds": [
+        "menu.product-name",
+        "menu.product-price",
+        "menu.product-description",
+        "menu.product-action"
+      ],
+      "preserveOrder": true,
+      "mutableProperties": []
+    }
+  ],
+  "requiredIds": [
+    "menu.category-navigation",
+    "menu.product-list",
+    "menu.fixed-controls",
+    "menu.product-action"
+  ],
+  "protectedProperties": [
+    "menu.product-list.items",
+    "menu.product-list.order",
+    "menu.category-navigation",
+    "menu.fixed-controls",
+    "menu.product-content",
+    "menu.product-action.behavior"
+  ],
+  "allowedOperations": [
+    "setGroupColumns",
+    "setGroupFlow",
+    "setChildBasis"
+  ],
+  "constraints": {
+    "textScale": "standard",
+    "buttonScale": "standard",
+    "highContrast": false,
+    "viewportModePercent": null,
+    "defaultColumns": 2,
+    "allowedColumns": [1, 2],
+    "minimumTouchTargetPx": 44,
+    "preserveTopGuidance": true,
+    "preserveFixedControls": true
+  }
+}
+360px 표준 모델의 차이점은 viewportClass: "compact", constraintHash: "207c8de6", defaultColumns: 1, allowedColumns: [1]입니다. 그 외 구조 필드는 같습니다.
+
+3. 연산 타입과 검증 범위
+실제 타입 정의:
+
+export type MenuLayoutOperation =
+  | {
+      type: "setGroupColumns";
+      targetId: "menu.product-list";
+      columns: MenuColumnCount;
+    }
+  | {
+      type: "setGroupFlow";
+      targetId: "menu.product-card";
+      direction: "row";
+      gapPx: number;
+    }
+  | {
+      type: "setChildBasis";
+      targetId: "menu.product-image";
+      basisPercent: number;
+      minPx: number;
+    };
+연산	대상	허용값
+setGroupColumns	menu.product-list	1 또는 2, 단 현재 모델의 allowedColumns에 포함되어야 함
+setGroupFlow	menu.product-card	direction: "row", gapPx: 8..20
+setChildBasis	menu.product-image	basisPercent: 20..30, minPx: 72..96
+허용 범위는 숫자 양 끝을 포함합니다. 값은 유한한 숫자여야 합니다.
+
+4. 독립·조합 조건, 순서와 중복
+열 변경만: setGroupColumns 단독 허용.
+카드 내부 변경만: setGroupFlow와 setChildBasis 둘 다 필요합니다. 둘 중 하나만 있으면 거부됩니다.
+둘 다 변경: 열 연산과 카드 연산 두 개를 조합할 수 있습니다.
+카드 내부 연산이 포함되면 유효 열 수는 반드시 1이어야 합니다. 계획에서 열 수를 생략한 경우 모델의 defaultColumns를 사용합니다.
+고정 순서: setGroupColumns → setGroupFlow → setChildBasis. 포함된 연산끼리도 이 순서를 지켜야 합니다.
+같은 연산의 중복은 거부됩니다.
+최상위 계획은 1~3개 연산이어야 합니다. 알 수 없는 필드와 연산 객체의 추가 필드도 거부됩니다.
+5. 화면 크기와 접근성 제약
+모델에서 viewportClass는 너비 380px 이하가 compact, 그보다 크면 regular입니다.
+
+열 제한을 계산하는 실제 코드:
+
+const viewportClass: MenuViewportClass = viewportWidth <= 380 ? "compact" : "regular";
+const accessibilityForcesSingleColumn =
+  (viewportWidth <= 700 && (profile.textSize !== "standard" || profile.buttonSize === "large")) ||
+  (viewportWidth > 700 && viewportWidth <= 900 &&
+    (profile.textSize === "extraLarge" || profile.buttonSize === "large"));
+const defaultColumns: MenuColumnCount =
+  viewportClass === "compact" || accessibilityForcesSingleColumn ? 1 : 2;
+const allowedColumns: readonly MenuColumnCount[] =
+  viewportClass === "compact" || accessibilityForcesSingleColumn ? [1] : [1, 2];
+요청하신 360px·390px 표준 모델 기준:
+
+360px: 기본 1열, 허용 [1]; 2열 계획은 거부됩니다.
+390px: 기본 2열, 허용 [1, 2]; 열만 1열로 바꾸거나 2열을 선택할 수 있습니다.
+390px 큰 글씨 또는 큰 버튼: 기본 1열, 허용 [1]; 2열 계획은 거부됩니다.
+하단 뷰포트 모드 60/70/80은 constraintHash에 반영됩니다. 모드만으로 allowedColumns가 바뀌지는 않습니다. 큰 글씨·큰 버튼 등의 제한은 위 계산식에 따라 적용됩니다.
+하단 배치·상단 안내는 모델에서 보호 대상으로 표시되며, 세 연산으로 변경할 수 없습니다.
+6. validateMenuLayoutPlan() 원본
+export function validateMenuLayoutPlan(
+  input: unknown,
+  model: MenuScreenModel,
+): ValidatedMenuLayout | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const plan = input as Record<string, unknown>;
+  if (!exactKeys(plan, [
+    "schemaVersion", "screenId", "structureHash", "constraintHash", "viewportClass", "operations",
+  ])) return null;
+  if (plan.schemaVersion !== 2 ||
+      plan.screenId !== model.screenId ||
+      plan.structureHash !== model.structureHash ||
+      plan.constraintHash !== model.constraintHash ||
+      plan.viewportClass !== model.viewportClass ||
+      !Array.isArray(plan.operations) ||
+      plan.operations.length < 1 ||
+      plan.operations.length > 3) return null;
+  const parsed: {
+    columns: MenuColumnCount | null;
+    gapPx: number | null;
+    imageBasisPercent: number | null;
+    imageMinimumPx: number | null;
+    operationOrder: number[];
+  } = {
+    columns: null,
+    gapPx: null,
+    imageBasisPercent: null,
+    imageMinimumPx: null,
+    operationOrder: [],
+  };
+  const order = { setGroupColumns: 0, setGroupFlow: 1, setChildBasis: 2 } as const;
+  for (const operation of plan.operations) {
+    if (!operation || typeof operation !== "object" || Array.isArray(operation)) return null;
+    const item = operation as Record<string, unknown>;
+    if (item.type === "setGroupColumns") {
+      if (!exactKeys(item, ["type", "targetId", "columns"]) ||
+          item.targetId !== "menu.product-list" ||
+          (item.columns !== 1 && item.columns !== 2) ||
+          !model.constraints.allowedColumns.includes(item.columns)) return null;
+      parsed.columns = item.columns;
+      parsed.operationOrder.push(order.setGroupColumns);
+    } else if (item.type === "setGroupFlow") {
+      if (!exactKeys(item, ["type", "targetId", "direction", "gapPx"]) ||
+          item.targetId !== "menu.product-card" ||
+          item.direction !== "row" ||
+          typeof item.gapPx !== "number" ||
+          !Number.isFinite(item.gapPx) ||
+          item.gapPx < 8 || item.gapPx > 20) return null;
+      parsed.gapPx = item.gapPx;
+      parsed.operationOrder.push(order.setGroupFlow);
+    } else if (item.type === "setChildBasis") {
+      if (!exactKeys(item, ["type", "targetId", "basisPercent", "minPx"]) ||
+          item.targetId !== "menu.product-image" ||
+          typeof item.basisPercent !== "number" ||
+          !Number.isFinite(item.basisPercent) ||
+          item.basisPercent < 20 || item.basisPercent > 30 ||
+          typeof item.minPx !== "number" ||
+          !Number.isFinite(item.minPx) ||
+          item.minPx < 72 || item.minPx > 96) return null;
+      parsed.imageBasisPercent = item.basisPercent;
+      parsed.imageMinimumPx = item.minPx;
+      parsed.operationOrder.push(order.setChildBasis);
+    } else {
+      return null;
+    }
+  }
+  if (new Set(parsed.operationOrder).size !== parsed.operationOrder.length ||
+      parsed.operationOrder.some((value, index, values) => index > 0 && value <= values[index - 1])) return null;
+  const hasFlow = parsed.gapPx !== null;
+  const hasBasis = parsed.imageBasisPercent !== null;
+  if (hasFlow !== hasBasis) return null;
+  const effectiveColumns = parsed.columns ?? model.constraints.defaultColumns;
+  if (hasFlow && effectiveColumns !== 1) return null;
+  return {
+    structureHash: model.structureHash,
+    constraintHash: model.constraintHash,
+    viewportClass: model.viewportClass,
+    columns: parsed.columns,
+    gapPx: parsed.gapPx,
+    imageBasisPercent: parsed.imageBasisPercent,
+    imageMinimumPx: parsed.imageMinimumPx,
+  };
+}
+7. React·DOM 적용 매핑
+React 요소에 의미 ID가 직접 부여되어 있습니다.
+
+모델 ID	React 요소	적용 방식
+menu.category-navigation	.category-nav	의미 ID만 지정, 레이아웃 연산 대상 아님
+menu.product-list	.product-grid	data-ai-columns; 카드 내부 연산의 값도 이 루트에 전달
+menu.product-card	각 .product-card	카드 버튼의 흐름을 CSS에서 선택
+menu.product-action	카드 전체 선택 <button>	기존 상품 선택 동작 유지
+menu.product-image	.product-art	이미지 열의 최소 너비·비율 대상
+menu.product-information	.product-meta	이미지 옆 정보 영역
+menu.product-name	상품명 영역	보호 대상
+menu.product-price	.price	보호 대상
+menu.product-description	.optional-detail	보호 대상
+menu.fixed-controls	장바구니 막대와 하단 컨트롤	레이아웃 연산 대상 아님
+React 적용부:
+
+<div
+  className="product-grid"
+  data-menu-layout-id="menu.product-list"
+  data-ai-columns={menuLayoutPlan?.columns ?? undefined}
+  data-ai-card-flow={
+    menuLayoutPlan?.gapPx !== null && menuLayoutPlan?.gapPx !== undefined
+      ? "row"
+      : undefined
+  }
+  style={menuLayoutPlan ? {
+    ...(menuLayoutPlan.gapPx !== null
+      ? { "--menu-ai-card-gap": `${menuLayoutPlan.gapPx}px` }
+      : {}),
+    ...(menuLayoutPlan.imageBasisPercent !== null
+      ? { "--menu-ai-image-basis": `${menuLayoutPlan.imageBasisPercent}%` }
+      : {}),
+    ...(menuLayoutPlan.imageMinimumPx !== null
+      ? { "--menu-ai-image-min": `${menuLayoutPlan.imageMinimumPx}px` }
+      : {}),
+  } as CSSProperties : undefined}
+>
+적용 CSS:
+
+.product-grid[data-menu-layout-id="menu.product-list"][data-ai-columns="1"] {
+  grid-template-columns: minmax(0,1fr);
+}
+.product-grid[data-menu-layout-id="menu.product-list"][data-ai-columns="2"] {
+  grid-template-columns: repeat(2,minmax(0,1fr));
+}
+.product-grid[data-menu-layout-id="menu.product-list"][data-ai-card-flow="row"]
+[data-menu-layout-id="menu.product-card"] > button {
+  display: grid;
+  grid-template-columns:
+    minmax(var(--menu-ai-image-min, 76px),var(--menu-ai-image-basis, 25%))
+    minmax(0,1fr);
+  align-items: stretch;
+  gap: var(--menu-ai-card-gap, 12px);
+}
+SDK 진단은 inspectLayout()으로 기준 화면에서 진단 서명을 수집한 뒤 계획 적용 후 새 서명을 확인합니다. 새 문제가 있으면 계획을 무효화하고 제거합니다. 이 경로는 자동 교정 함수가 아니라 진단을 사용합니다.
+
+8. 정상 계획 예시 3개
+각 JSON은 계획 자체입니다. result 같은 추가 필드는 실제 계획 스키마에 없으므로 넣지 않았습니다.
+
+A. 열만 1열로 변경 — 390px 표준, 승인
+{
+  "schemaVersion": 2,
+  "screenId": "cafe.menu",
+  "structureHash": "837f86b3",
+  "constraintHash": "df5bb9a5",
+  "viewportClass": "regular",
+  "operations": [
+    {
+      "type": "setGroupColumns",
+      "targetId": "menu.product-list",
+      "columns": 1
+    }
+  ]
+}
+B. 카드 내부만 변경 — 360px 표준, 승인
+기본 열 수가 1이므로 열 연산 없이 카드 내부 연산 쌍을 사용할 수 있습니다.
+
+{
+  "schemaVersion": 2,
+  "screenId": "cafe.menu",
+  "structureHash": "837f86b3",
+  "constraintHash": "207c8de6",
+  "viewportClass": "compact",
+  "operations": [
+    {
+      "type": "setGroupFlow",
+      "targetId": "menu.product-card",
+      "direction": "row",
+      "gapPx": 12
+    },
+    {
+      "type": "setChildBasis",
+      "targetId": "menu.product-image",
+      "basisPercent": 25,
+      "minPx": 76
+    }
+  ]
+}
+C. 열과 카드 내부 모두 변경 — 390px 표준, 승인
+{
+  "schemaVersion": 2,
+  "screenId": "cafe.menu",
+  "structureHash": "837f86b3",
+  "constraintHash": "df5bb9a5",
+  "viewportClass": "regular",
+  "operations": [
+    {
+      "type": "setGroupColumns",
+      "targetId": "menu.product-list",
+      "columns": 1
+    },
+    {
+      "type": "setGroupFlow",
+      "targetId": "menu.product-card",
+      "direction": "row",
+      "gapPx": 12
+    },
+    {
+      "type": "setChildBasis",
+      "targetId": "menu.product-image",
+      "basisPercent": 25,
+      "minPx": 76
+    }
+  ]
+}
+9. 거부 계획 예시 3개
+D. 360px에서 2열 — 거부
+모델의 allowedColumns가 [1]입니다.
+
+{
+  "schemaVersion": 2,
+  "screenId": "cafe.menu",
+  "structureHash": "837f86b3",
+  "constraintHash": "207c8de6",
+  "viewportClass": "compact",
+  "operations": [
+    {
+      "type": "setGroupColumns",
+      "targetId": "menu.product-list",
+      "columns": 2
+    }
+  ]
+}
+E. 390px에서 2열과 카드 가로 배치 조합 — 거부
+각 연산의 값은 개별 범위에 들어가지만, 카드 내부 연산이 포함된 계획의 유효 열 수가 2라서 거부됩니다.
+
+{
+  "schemaVersion": 2,
+  "screenId": "cafe.menu",
+  "structureHash": "837f86b3",
+  "constraintHash": "df5bb9a5",
+  "viewportClass": "regular",
+  "operations": [
+    {
+      "type": "setGroupColumns",
+      "targetId": "menu.product-list",
+      "columns": 2
+    },
+    {
+      "type": "setGroupFlow",
+      "targetId": "menu.product-card",
+      "direction": "row",
+      "gapPx": 12
+    },
+    {
+      "type": "setChildBasis",
+      "targetId": "menu.product-image",
+      "basisPercent": 25,
+      "minPx": 76
+    }
+  ]
+}
+F. 큰 글씨·큰 버튼·하단 80% 설정에서 2열 — 거부
+390px, textSize: "large", buttonSize: "large", 고대비, 하단 뷰포트 80% 모델의 constraintHash는 8ea80fa2, 허용 열은 [1]입니다.
+
+{
+  "schemaVersion": 2,
+  "screenId": "cafe.menu",
+  "structureHash": "837f86b3",
+  "constraintHash": "8ea80fa2",
+  "viewportClass": "regular",
+  "operations": [
+    {
+      "type": "setGroupColumns",
+      "targetId": "menu.product-list",
+      "columns": 2
+    }
+  ]
+}
+10. 중앙 재현용 테스트 벡터
+벡터	입력 폭·프로필	기대 해시 / 열 제약	계획 요약	기대 결과
+V1	360px, 표준	structure 837f86b3, constraint 207c8de6, compact, 기본 1, 허용 [1]	카드 내부 연산 쌍만	승인
+V2	390px, 표준	structure 837f86b3, constraint df5bb9a5, regular, 기본 2, 허용 [1,2]	열 1만	승인
+V3	390px, 표준	동일한 df5bb9a5	열 1 + 카드 내부 연산 쌍	승인
+V4	360px, 표준	207c8de6, 허용 [1]	열 2	거부
+V5	390px, 표준	df5bb9a5, 허용 [1,2]	열 2 + 카드 내부 연산 쌍	거부
+V6	390px, 큰 글씨·큰 버튼·고대비·하단 80%	structure 837f86b3, constraint 8ea80fa2, 기본 1, 허용 [1]	열 2	거부
+각 벡터의 계획 payload는 위 A–F JSON과 동일합니다. constraintHash는 constraints 객체의 값과 키 삽입 순서가 정확히 일치할 때 재현됩니다.
+
+11. 테스트 소스
+src/menuLayoutPlan.test.mjs는 독립 열/카드 계획, 정상 전체 계획, 추가 필드·대상·연산 거부, 화면 크기·큰 글씨·큰 버튼 제한, 연산 중복·순서·누락·범위 및 stale hash 거부를 검사합니다.
+
+scripts/test-menu-layout-transform-browser.mjs는 실제 React 화면에서 360px·390px의 기본 배치와 계획 적용, 항목 수·순서·ARIA 라벨 보존, DOM 의미 ID, 열만/카드만 변경, compact 2열 거부와 regular 2열 승인을 확인합니다.
+
+중앙 정책 인터페이스와 서버 측 직렬화 규칙은 이 프로젝트 소스에서 확인되지 않아 이 문서에 추가하지 않았습니다.
