@@ -17,6 +17,14 @@ import {
   type LayoutPlanRequest,
 } from "./layout-plan";
 import { generateLayoutPlan } from "./ai-layout";
+import {
+  validateDemoMenuModel,
+  validateDemoMenuPlan,
+  generateDemoMenuPlan,
+  type DemoMenuModel,
+  type DemoMenuPlan,
+} from "./demo-menu-layout";
+import { registeredDemoMenuPolicies } from "./layout-policies";
 
 const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -156,15 +164,19 @@ export function createApp(
     serviceToken?: string;
     policies?: readonly LayoutPolicy[];
     planGenerator?: LayoutPlanGenerator;
+    demoMenuPlanGenerator?: (model: DemoMenuModel) => Promise<DemoMenuPlan>;
+    demoMenuPolicies?: typeof registeredDemoMenuPolicies;
     maxRequestsPerHost?: number;
   } = {},
 ) {
   const app = express();
   const recommendationAttempts = new Map<string, { count: number; resetAt: number }>();
   const layoutAttempts = new Map<string, { count: number; resetAt: number }>();
-  const layoutPlanCache = new Map<string, { expiresAt: number; result: Promise<Awaited<ReturnType<LayoutPlanGenerator>>> }>();
+  const layoutPlanCache = new Map<string, { expiresAt: number; result: Promise<unknown> }>();
   const layoutPolicies = layoutOptions.policies ?? [];
+  const demoMenuPolicies = layoutOptions.demoMenuPolicies ?? registeredDemoMenuPolicies;
   const layoutPlanGenerator = layoutOptions.planGenerator ?? generateLayoutPlan;
+  const demoMenuPlanGenerator = layoutOptions.demoMenuPlanGenerator ?? generateDemoMenuPlan;
   const allowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "")
       .split(",")
@@ -280,18 +292,33 @@ export function createApp(
       timingSafeEqual(expectedBuffer, providedBuffer);
     if (!authorized) return fail(res, 401, "인증이 필요합니다.");
 
-    let input: LayoutPlanRequest;
+    let input: LayoutPlanRequest | DemoMenuModel;
+    let isDemoMenu = false;
+    let demoPolicy: (typeof registeredDemoMenuPolicies)[number] | undefined;
     try {
-      input = validateLayoutPlanRequest(req.body, layoutPolicies);
+      isDemoMenu = Boolean(req.body && typeof req.body === "object" && "hostId" in req.body);
+      if (isDemoMenu) {
+        demoPolicy = demoMenuPolicies.find((candidate) =>
+          candidate.hostId === req.body.hostId && candidate.screenId === req.body.screenId,
+        );
+        if (!demoPolicy) return fail(res, 404, "지원하지 않는 화면입니다.");
+      }
+      input = isDemoMenu
+        ? validateDemoMenuModel(req.body)
+        : validateLayoutPlanRequest(req.body, layoutPolicies);
     } catch (error) {
       if (error instanceof Error && error.message === "UNSUPPORTED_SCREEN") {
         return fail(res, 404, "지원하지 않는 화면입니다.");
       }
       return fail(res, 400, "화면 구성 요청을 확인해 주세요.");
     }
-    const policy = layoutPolicies.find(
-      (item) => item.hostAppId === input.hostAppId && item.screenId === input.screenId,
-    );
+    const hostId = isDemoMenu ? (input as DemoMenuModel).hostId : (input as LayoutPlanRequest).hostAppId;
+    const policy = isDemoMenu
+      ? demoPolicy && { hostAppId: demoPolicy.hostId, screenId: demoPolicy.screenId }
+      : layoutPolicies.find((item) =>
+        item.hostAppId === (input as LayoutPlanRequest).hostAppId &&
+        item.screenId === (input as LayoutPlanRequest).screenId,
+      );
     if (!policy) return fail(res, 404, "지원하지 않는 화면입니다.");
 
     const now = Date.now();
@@ -309,14 +336,14 @@ export function createApp(
     }
     if (cachedPlan) layoutPlanCache.delete(requestKey);
 
-    const attempts = layoutAttempts.get(policy.hostAppId);
+    const attempts = layoutAttempts.get(hostId);
     const limit = layoutOptions.maxRequestsPerHost ?? 10;
     if (attempts && attempts.resetAt > now && attempts.count >= limit) {
       res.setHeader("Retry-After", "600");
       return fail(res, 429, "요청이 잠시 많아요. 잠시 후 다시 시도해 주세요.");
     }
     if (!attempts || attempts.resetAt <= now) {
-      layoutAttempts.set(policy.hostAppId, { count: 1, resetAt: now + 10 * 60_000 });
+      layoutAttempts.set(hostId, { count: 1, resetAt: now + 10 * 60_000 });
     } else {
       attempts.count += 1;
     }
@@ -326,7 +353,13 @@ export function createApp(
       }
     }
 
-    const result = Promise.resolve().then(() => layoutPlanGenerator(input, policy));
+    const result = Promise.resolve().then(async () => {
+      if (isDemoMenu) {
+        const generated = await demoMenuPlanGenerator(input as DemoMenuModel);
+        return validateDemoMenuPlan(generated, input as DemoMenuModel);
+      }
+      return layoutPlanGenerator(input as LayoutPlanRequest, policy as LayoutPolicy);
+    });
     layoutPlanCache.set(requestKey, { expiresAt: now + 30_000, result });
     if (layoutPlanCache.size > 2_000) {
       for (const [key, value] of layoutPlanCache) {

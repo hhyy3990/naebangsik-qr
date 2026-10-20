@@ -7,10 +7,23 @@
 - The route requires `Authorization: Bearer <service-token>`.
 - Configure `AI_LAYOUT_SERVICE_TOKEN` in Replit Secrets separately for each environment. Do not put it in browser code, source files, or the shared SDK.
 - The existing `OPENAI_API_KEY` is reused server-side. `OPENAI_MODEL` is optional; the default is `gpt-4o-mini`.
-- No host/screen policy is currently registered in `server/layout-policies.ts`. Until a reviewed screen contract is added there, requests are rejected. This is intentional: DemoCafe's current exact element and layout contract has not been verified.
+- DemoCafe `democoffee` / `cafe.menu` v2 is registered with a host-specific validator. Other hosts/screens still require a separate server policy.
 - The in-memory request limit defaults to 10 distinct requests per host per 10 minutes. Identical requests reuse a 30-second in-memory plan to avoid duplicate calls. Both mechanisms are per process, not global across Autoscale instances.
 
-## Request
+## DemoCafe menu v2 request
+
+DemoCafe v2 uses its source-defined model (`schemaVersion: 2`, `hostId`, `screenId`, `structureVersion`, `structureHash`, `constraintHash`, `viewportClass`, groups, protected properties, allowed operations, and constraints). It is validated separately from the legacy generic SHA-256 layout request; the legacy contract remains available for its own registered hosts.
+
+- The server reconstructs the documented `STRUCTURE` string in its exact order and computes JavaScript `charCodeAt`-based 32-bit FNV-1a. Only `menu.v2` hash `837f86b3` is accepted.
+- The server parses the strict, insertion-ordered constraint object, hashes its `JSON.stringify` using the same FNV-1a routine, and compares the resulting 8-character digest. It does not accept a caller-supplied hash without recomputation.
+- The model's groups, required/protected IDs, and allowed operation list must match the registered policy.
+- Only the three source-defined operations and combinations/order are accepted. Product contents, order, selection behavior, and fixed controls have no mutable operation.
+- Since the model has `viewportClass` but does not carry numeric viewport width, column constraints are checked conservatively from class and text/button scales: compact or nonstandard text / large buttons require `[1]`; otherwise regular permits `[1,2]`. This avoids allowing unsafe two-column plans; it can reject a host model at widths outside the verified 360/390px vectors.
+- AI plans must echo schema version, screen, both hashes, and viewport class. Card flow and child basis must appear together and require effective columns of one.
+
+The documented test vectors reproduce structure hash `837f86b3`; standard constraint hashes are `207c8de6` at 360px and `df5bb9a5` at 390px, with the supplied large-text/large-button/high-contrast/bottom-80% example `8ea80fa2`.
+
+## Legacy generic request
 
 The strict request schema accepts only:
 
