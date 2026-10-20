@@ -162,6 +162,7 @@ export function createApp(
   const app = express();
   const recommendationAttempts = new Map<string, { count: number; resetAt: number }>();
   const layoutAttempts = new Map<string, { count: number; resetAt: number }>();
+  const layoutPlanCache = new Map<string, { expiresAt: number; result: Promise<Awaited<ReturnType<LayoutPlanGenerator>>> }>();
   const layoutPolicies = layoutOptions.policies ?? [];
   const layoutPlanGenerator = layoutOptions.planGenerator ?? generateLayoutPlan;
   const allowedOrigins = new Set(
@@ -294,6 +295,20 @@ export function createApp(
     if (!policy) return fail(res, 404, "지원하지 않는 화면입니다.");
 
     const now = Date.now();
+    const requestKey = createHash("sha256")
+      .update(JSON.stringify(input))
+      .digest("hex");
+    const cachedPlan = layoutPlanCache.get(requestKey);
+    if (cachedPlan && cachedPlan.expiresAt > now) {
+      try {
+        return res.json(await cachedPlan.result);
+      } catch {
+        layoutPlanCache.delete(requestKey);
+        return fail(res, 502, "화면 구성 계획을 만들지 못했어요. 기존 화면을 유지해 주세요.");
+      }
+    }
+    if (cachedPlan) layoutPlanCache.delete(requestKey);
+
     const attempts = layoutAttempts.get(policy.hostAppId);
     const limit = layoutOptions.maxRequestsPerHost ?? 10;
     if (attempts && attempts.resetAt > now && attempts.count >= limit) {
@@ -311,9 +326,23 @@ export function createApp(
       }
     }
 
+    const result = Promise.resolve().then(() => layoutPlanGenerator(input, policy));
+    layoutPlanCache.set(requestKey, { expiresAt: now + 30_000, result });
+    if (layoutPlanCache.size > 2_000) {
+      for (const [key, value] of layoutPlanCache) {
+        if (value.expiresAt <= now) layoutPlanCache.delete(key);
+      }
+      while (layoutPlanCache.size > 2_000) {
+        const oldestKey = layoutPlanCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        layoutPlanCache.delete(oldestKey);
+      }
+    }
+
     try {
-      return res.json(await layoutPlanGenerator(input, policy));
+      return res.json(await result);
     } catch (error) {
+      layoutPlanCache.delete(requestKey);
       if (error instanceof Error && error.message === "AI_NOT_CONFIGURED") {
         return fail(res, 503, "화면 구성 계획 API가 아직 설정되지 않았어요.");
       }
@@ -507,7 +536,14 @@ export function createApp(
 
   app.use("/api", (_req, res) => fail(res, 404, "요청한 기능을 찾을 수 없습니다."));
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    console.error("API request failed:", error);
+    const bodyError = error as { type?: string; status?: number };
+    if (bodyError?.type === "entity.parse.failed") {
+      return fail(res, 400, "요청 형식을 확인해 주세요.");
+    }
+    if (bodyError?.type === "entity.too.large") {
+      return fail(res, 413, "요청이 너무 큽니다.");
+    }
+    console.error("API request failed:", error instanceof Error ? error.name : "UnknownError");
     return fail(res, 500, "서버에서 요청을 처리하지 못했습니다.");
   });
 

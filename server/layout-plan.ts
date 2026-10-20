@@ -141,6 +141,12 @@ export function validateLayoutPlanRequest(
   }
   const allowedIds = new Set(policy.elementIds);
   if (ids.some((id) => !allowedIds.has(id))) throw new Error("UNREGISTERED_ELEMENT");
+  if (input.elements.some((element) =>
+    element.groupId !== null &&
+    (!allowedIds.has(element.groupId) || element.groupId === element.id)
+  )) {
+    throw new Error("UNREGISTERED_ELEMENT_GROUP");
+  }
   if (policy.requiredElementIds.some((id) => !ids.includes(id))) {
     throw new Error("REQUIRED_ELEMENT_MISSING");
   }
@@ -167,6 +173,7 @@ export function validateLayoutPlan(
     throw new Error("PLAN_STRUCTURE_MISMATCH");
   }
   const seen = new Set<string>();
+  const inputIds = new Set(input.elements.map(({ id }) => id));
   const mutableTargets = new Set(policy.mutableTargetIds);
   const immutableIds = new Set(policy.immutableElementIds);
   for (const operation of plan.operations) {
@@ -176,6 +183,7 @@ export function validateLayoutPlan(
     if (!mutableTargets.has(operation.targetId) || immutableIds.has(operation.targetId)) {
       throw new Error("IMMUTABLE_LAYOUT_TARGET");
     }
+    if (!inputIds.has(operation.targetId)) throw new Error("UNKNOWN_LAYOUT_TARGET");
     const operationPolicy = policy.operations.find(
       (item) => item.operation === operation.operation && item.targetIds.includes(operation.targetId),
     );

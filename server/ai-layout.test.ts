@@ -78,6 +78,10 @@ test("layout input requires a registered screen, elements, and matching structur
     ...input,
     extra: "not allowed",
   }, [policy]));
+  assert.throws(() => validateLayoutPlanRequest({
+    ...input,
+    qrToken: "not-forwarded",
+  }, [policy]));
 });
 
 test("layout plan accepts allowlisted operations and rejects unknown targets, values, and stale screens", () => {
@@ -140,10 +144,12 @@ test("AI layout API requires server auth and never calls the model for invalid o
     .set("Authorization", "Bearer wrong-token")
     .send(input);
   assert.equal(invalidAuth.status, 401);
+  const unsupportedInput = { ...input, screenId: "not-registered" };
+  unsupportedInput.structureHash = computeLayoutStructureHash(unsupportedInput);
   const unsupported = await request(app)
     .post("/api/ai-layout/plan")
     .set("Authorization", "Bearer test-service-token-not-a-secret-000000000000")
-    .send({ ...input, screenId: "not-registered" });
+    .send(unsupportedInput);
   assert.equal(unsupported.status, 404);
   const invalid = await request(app)
     .post("/api/ai-layout/plan")
@@ -179,6 +185,32 @@ test("AI layout API returns a validated plan and safely maps provider failures",
     .send(input);
   assert.equal(failed.status, 502);
   assert.doesNotMatch(JSON.stringify(failed.body), /private provider failure/);
+
+  const timeoutApp = createApp({} as Pool, undefined, {
+    serviceToken: token,
+    policies: [policy],
+    planGenerator: async () => {
+      const error = new Error("timeout");
+      error.name = "APIConnectionTimeoutError";
+      throw error;
+    },
+  });
+  const timedOut = await request(timeoutApp)
+    .post("/api/ai-layout/plan")
+    .set("Authorization", `Bearer ${token}`)
+    .send(input);
+  assert.equal(timedOut.status, 502);
+  assert.doesNotMatch(JSON.stringify(timedOut.body), /timeout/);
+});
+
+test("AI layout API stays disabled when the service token is not configured", async () => {
+  const app = createApp({} as Pool, undefined, {
+    serviceToken: "",
+    policies: [policy],
+    planGenerator: async () => plan,
+  });
+  const response = await request(app).post("/api/ai-layout/plan").send(input);
+  assert.equal(response.status, 503);
 });
 
 test("AI layout API applies a per-host in-memory request limit", async () => {
@@ -198,8 +230,27 @@ test("AI layout API applies a per-host in-memory request limit", async () => {
     .set("Authorization", `Bearer ${token}`)
     .send(input);
   assert.equal((await post()).status, 200);
-  const limited = await post();
+  const limited = await request(app)
+    .post("/api/ai-layout/plan")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ ...input, viewport: "compact" });
   assert.equal(limited.status, 429);
   assert.equal(limited.headers["retry-after"], "600");
   assert.equal(calls, 1);
+});
+
+test("malformed or oversized JSON is rejected without echoing request content", async () => {
+  const app = createApp({} as Pool, undefined, { serviceToken: "token" });
+  const malformed = await request(app)
+    .post("/api/ai-layout/plan")
+    .set("Content-Type", "application/json")
+    .send('{"qrToken":"private-value"');
+  assert.equal(malformed.status, 400);
+  assert.doesNotMatch(JSON.stringify(malformed.body), /private-value/);
+
+  const oversized = await request(app)
+    .post("/api/ai-layout/plan")
+    .set("Content-Type", "application/json")
+    .send(JSON.stringify({ data: "x".repeat(20_000) }));
+  assert.equal(oversized.status, 413);
 });
