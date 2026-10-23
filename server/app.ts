@@ -374,7 +374,14 @@ export function createApp(
         demoPolicy = demoMenuPolicies.find((candidate) =>
           candidate.hostId === req.body.hostId && candidate.screenId === req.body.screenId,
         );
-        if (!demoPolicy) return fail(res, 404, "지원하지 않는 화면입니다.");
+        if (!demoPolicy) {
+          currentStage = "policy_lookup";
+          logAiLayoutDiagnostic(requestId, currentStage, {
+            outcome: "rejected",
+            errorCode: "UNSUPPORTED_SCREEN",
+          });
+          return fail(res, 404, "지원하지 않는 화면입니다.");
+        }
       }
       input = isDemoMenu
         ? validateDemoMenuModel(req.body)

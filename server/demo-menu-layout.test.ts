@@ -177,11 +177,32 @@ test("AI layout endpoint authenticates and applies the server-owned DemoCafe pol
   assert.match(response.headers["x-request-id"], /^[0-9a-f-]{36}$/);
   assert.deepEqual(response.body, plan);
   assert.equal(calls, 1);
+  const malformed = await request(app)
+    .post("/api/ai-layout/plan")
+    .set("Authorization", `Bearer ${token}`)
+    .send({});
+  assert.equal(malformed.status, 400);
+  assert.match(malformed.headers["x-request-id"], /^[0-9a-f-]{36}$/);
+  assert.equal(calls, 1);
+
   const invalid = await request(app)
     .post("/api/ai-layout/plan")
     .set("Authorization", `Bearer ${token}`)
     .send({ ...input, structureHash: "deadbeef" });
   assert.equal(invalid.status, 400);
+  assert.equal(calls, 1);
+
+  const unsupportedScreen = await request(app)
+    .post("/api/ai-layout/plan")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ ...input, screenId: "cafe.unknown" });
+  assert.equal(unsupportedScreen.status, 404);
+  assert.match(unsupportedScreen.headers["x-request-id"], /^[0-9a-f-]{36}$/);
+  assert.equal(calls, 1);
+
+  const missingRoute = await request(app).post("/api/ai-layout/not-plan").send(input);
+  assert.equal(missingRoute.status, 404);
+  assert.equal(missingRoute.headers["x-request-id"], undefined);
   assert.equal(calls, 1);
 });
 
