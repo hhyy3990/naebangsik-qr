@@ -202,7 +202,7 @@ test("AI layout endpoint authenticates and applies the server-owned DemoCafe pol
 
   const missingRoute = await request(app).post("/api/ai-layout/not-plan").send(input);
   assert.equal(missingRoute.status, 404);
-  assert.equal(missingRoute.headers["x-request-id"], undefined);
+  assert.match(missingRoute.headers["x-request-id"], /^[0-9a-f-]{36}$/);
   assert.equal(calls, 1);
 });
 

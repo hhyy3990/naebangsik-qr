@@ -706,7 +706,16 @@ export function createApp(
     }
   }));
 
-  app.use("/api", (_req, res) => fail(res, 404, "요청한 기능을 찾을 수 없습니다."));
+  app.use("/api", (_req, res) => {
+    const requestId = randomUUID();
+    res.setHeader("X-Request-ID", requestId);
+    console.info(JSON.stringify({
+      event: "api_route_not_found",
+      requestId,
+      statusCode: 404,
+    }));
+    return fail(res, 404, "요청한 기능을 찾을 수 없습니다.");
+  });
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const bodyError = error as { type?: string; status?: number };
     if (bodyError?.type === "entity.parse.failed") {
