@@ -165,11 +165,25 @@ export function validateDemoMenuPlan(value: unknown, model: DemoMenuModel): Demo
   return plan;
 }
 
-export async function generateDemoMenuPlan(model: DemoMenuModel, client?: OpenAI): Promise<DemoMenuPlan> {
+export async function generateDemoMenuPlan(
+  model: DemoMenuModel,
+  client?: OpenAI,
+  onDiagnostic?: (event:
+    | "openai_attempt"
+    | "openai_response"
+    | "json_parse_started"
+    | "json_parsed"
+    | "plan_validation_started"
+    | "plan_validated"
+    | "openai_timeout") => void,
+): Promise<DemoMenuPlan> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!client && !apiKey) throw new Error("AI_NOT_CONFIGURED");
   const openai = client ?? new OpenAI({ apiKey, timeout: 18_000, maxRetries: 0 });
-  const response = await openai.responses.create({
+  onDiagnostic?.("openai_attempt");
+  let response;
+  try {
+    response = await openai.responses.create({
     model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
     store: false,
     max_output_tokens: 700,
@@ -231,7 +245,18 @@ export async function generateDemoMenuPlan(model: DemoMenuModel, client?: OpenAI
         },
       },
     },
-  });
+    });
+  } catch (error) {
+    if (error instanceof Error && /timeout/i.test(error.name)) onDiagnostic?.("openai_timeout");
+    throw error;
+  }
+  onDiagnostic?.("openai_response");
   if (!response.output_text) throw new Error("EMPTY_AI_LAYOUT_RESPONSE");
-  return validateDemoMenuPlan(JSON.parse(response.output_text), model);
+  onDiagnostic?.("json_parse_started");
+  const parsed = JSON.parse(response.output_text);
+  onDiagnostic?.("json_parsed");
+  onDiagnostic?.("plan_validation_started");
+  const plan = validateDemoMenuPlan(parsed, model);
+  onDiagnostic?.("plan_validated");
+  return plan;
 }

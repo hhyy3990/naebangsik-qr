@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import type OpenAI from "openai";
 import { z } from "zod";
 import type { Pool } from "pg";
 import { PROFILE_SCHEMA_VERSION } from "../src/lib/profile";
@@ -149,6 +150,45 @@ function normalizePublicAppUrl(value: string): string | null {
 const fail = (res: Response, status: number, error: string) =>
   res.status(status).json({ error });
 
+type AiLayoutDiagnosticFields = {
+  outcome?: "passed" | "failed" | "started" | "completed" | "rejected";
+  statusCode?: number;
+  errorCode?: string;
+  openaiAttempted?: boolean;
+  timedOut?: boolean;
+};
+
+function logAiLayoutDiagnostic(
+  requestId: string,
+  stage: string,
+  fields: AiLayoutDiagnosticFields = {},
+) {
+  console.info(JSON.stringify({ event: "ai_layout_diagnostic", requestId, stage, ...fields }));
+}
+
+function safeAiLayoutErrorCode(error: unknown, stage?: string): string {
+  if (!(error instanceof Error)) return "UNKNOWN_ERROR";
+  if (error.name === "ZodError") return "INVALID_SCHEMA";
+  if (error instanceof SyntaxError) return "INVALID_JSON";
+  if (/timeout/i.test(error.name)) return "OPENAI_TIMEOUT";
+  if (stage === "openai_request") return "OPENAI_PROVIDER_ERROR";
+  const allowedCodes = new Set([
+    "AI_NOT_CONFIGURED",
+    "EMPTY_AI_LAYOUT_RESPONSE",
+    "UNSUPPORTED_SCREEN",
+    "STRUCTURE_HASH_MISMATCH",
+    "CONSTRAINT_HASH_MISMATCH",
+    "UNSUPPORTED_MENU_MODEL",
+    "INVALID_MENU_COLUMN_CONSTRAINTS",
+    "PLAN_MODEL_MISMATCH",
+    "INVALID_OPERATION_ORDER_OR_DUPLICATE",
+    "INCOMPLETE_CARD_LAYOUT",
+    "DISALLOWED_COLUMN_COUNT",
+    "CARD_LAYOUT_REQUIRES_SINGLE_COLUMN",
+  ]);
+  return allowedCodes.has(error.message) ? error.message : "GENERATION_OR_VALIDATION_ERROR";
+}
+
 function asyncRoute(
   handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
 ) {
@@ -164,7 +204,18 @@ export function createApp(
     serviceToken?: string;
     policies?: readonly LayoutPolicy[];
     planGenerator?: LayoutPlanGenerator;
-    demoMenuPlanGenerator?: (model: DemoMenuModel) => Promise<DemoMenuPlan>;
+    demoMenuPlanGenerator?: (
+      model: DemoMenuModel,
+      client?: OpenAI,
+      onDiagnostic?: (event:
+        | "openai_attempt"
+        | "openai_response"
+        | "json_parse_started"
+        | "json_parsed"
+        | "plan_validation_started"
+        | "plan_validated"
+        | "openai_timeout") => void,
+    ) => Promise<DemoMenuPlan>;
     demoMenuPolicies?: typeof registeredDemoMenuPolicies;
     maxRequestsPerHost?: number;
   } = {},
@@ -279,8 +330,25 @@ export function createApp(
 
   app.post("/api/ai-layout/plan", asyncRoute(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
+    const requestId = randomUUID();
+    res.setHeader("X-Request-ID", requestId);
+    let openaiAttempted = false;
+    let timedOut = false;
+    let currentStage = "request_received";
+    logAiLayoutDiagnostic(requestId, currentStage);
+    res.on("finish", () => {
+      logAiLayoutDiagnostic(requestId, "response", {
+        statusCode: res.statusCode,
+        openaiAttempted,
+        timedOut,
+      });
+    });
     const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
-    if (!expectedToken) return fail(res, 503, "화면 구성 계획 API가 아직 설정되지 않았어요.");
+    if (!expectedToken) {
+      currentStage = "authentication";
+      logAiLayoutDiagnostic(requestId, currentStage, { outcome: "failed", errorCode: "SERVICE_NOT_CONFIGURED" });
+      return fail(res, 503, "화면 구성 계획 API가 아직 설정되지 않았어요.");
+    }
 
     const authorization = req.get("authorization") ?? "";
     const match = /^Bearer ([^\s]+)$/.exec(authorization);
@@ -290,6 +358,11 @@ export function createApp(
     const authorized =
       expectedBuffer.length === providedBuffer.length &&
       timingSafeEqual(expectedBuffer, providedBuffer);
+    currentStage = "authentication";
+    logAiLayoutDiagnostic(requestId, currentStage, {
+      outcome: authorized ? "passed" : "failed",
+      errorCode: authorized ? undefined : "AUTH_FAILED",
+    });
     if (!authorized) return fail(res, 401, "인증이 필요합니다.");
 
     let input: LayoutPlanRequest | DemoMenuModel;
@@ -307,11 +380,18 @@ export function createApp(
         ? validateDemoMenuModel(req.body)
         : validateLayoutPlanRequest(req.body, layoutPolicies);
     } catch (error) {
+      currentStage = "model_validation";
+      logAiLayoutDiagnostic(requestId, currentStage, {
+        outcome: "failed",
+        errorCode: safeAiLayoutErrorCode(error, currentStage),
+      });
       if (error instanceof Error && error.message === "UNSUPPORTED_SCREEN") {
         return fail(res, 404, "지원하지 않는 화면입니다.");
       }
       return fail(res, 400, "화면 구성 요청을 확인해 주세요.");
     }
+    currentStage = "model_validation";
+    logAiLayoutDiagnostic(requestId, currentStage, { outcome: "passed" });
     const hostId = isDemoMenu ? (input as DemoMenuModel).hostId : (input as LayoutPlanRequest).hostAppId;
     const policy = isDemoMenu
       ? demoPolicy && { hostAppId: demoPolicy.hostId, screenId: demoPolicy.screenId }
@@ -319,7 +399,10 @@ export function createApp(
         item.hostAppId === (input as LayoutPlanRequest).hostAppId &&
         item.screenId === (input as LayoutPlanRequest).screenId,
       );
-    if (!policy) return fail(res, 404, "지원하지 않는 화면입니다.");
+    if (!policy) {
+      logAiLayoutDiagnostic(requestId, "policy_lookup", { outcome: "rejected", errorCode: "UNSUPPORTED_SCREEN" });
+      return fail(res, 404, "지원하지 않는 화면입니다.");
+    }
 
     const now = Date.now();
     const requestKey = createHash("sha256")
@@ -328,9 +411,11 @@ export function createApp(
     const cachedPlan = layoutPlanCache.get(requestKey);
     if (cachedPlan && cachedPlan.expiresAt > now) {
       try {
+        logAiLayoutDiagnostic(requestId, "cache", { outcome: "passed" });
         return res.json(await cachedPlan.result);
       } catch {
         layoutPlanCache.delete(requestKey);
+        logAiLayoutDiagnostic(requestId, "plan_generation", { outcome: "failed", errorCode: "CACHED_PLAN_REJECTED" });
         return fail(res, 502, "화면 구성 계획을 만들지 못했어요. 기존 화면을 유지해 주세요.");
       }
     }
@@ -339,6 +424,7 @@ export function createApp(
     const attempts = layoutAttempts.get(hostId);
     const limit = layoutOptions.maxRequestsPerHost ?? 10;
     if (attempts && attempts.resetAt > now && attempts.count >= limit) {
+      logAiLayoutDiagnostic(requestId, "request_limit", { outcome: "rejected", errorCode: "REQUEST_LIMIT_EXCEEDED" });
       res.setHeader("Retry-After", "600");
       return fail(res, 429, "요청이 잠시 많아요. 잠시 후 다시 시도해 주세요.");
     }
@@ -355,9 +441,45 @@ export function createApp(
 
     const result = Promise.resolve().then(async () => {
       if (isDemoMenu) {
-        const generated = await demoMenuPlanGenerator(input as DemoMenuModel);
+        currentStage = "plan_generation";
+        logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
+        const generated = await demoMenuPlanGenerator(
+          input as DemoMenuModel,
+          undefined,
+          (event) => {
+            if (event === "openai_attempt") openaiAttempted = true;
+            if (event === "openai_timeout") timedOut = true;
+            const stageByEvent: Record<string, string> = {
+              openai_attempt: "openai_request",
+              openai_response: "openai_response",
+              json_parse_started: "json_parse",
+              json_parsed: "json_parse",
+              plan_validation_started: "plan_validation",
+              plan_validated: "plan_validation",
+              openai_timeout: "openai_request",
+            };
+            currentStage = stageByEvent[event] ?? currentStage;
+            const outcome =
+              event === "openai_attempt" || event === "json_parse_started" || event === "plan_validation_started"
+                ? "started"
+                : event === "openai_timeout"
+                  ? "failed"
+                  : "passed";
+            logAiLayoutDiagnostic(requestId, currentStage, {
+              outcome,
+              errorCode: event === "openai_timeout" ? "OPENAI_TIMEOUT" : undefined,
+              openaiAttempted,
+              timedOut,
+            });
+          },
+        );
+        logAiLayoutDiagnostic(requestId, "plan_generation", { outcome: "completed", openaiAttempted, timedOut });
+        currentStage = "plan_validation";
+        logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
         return validateDemoMenuPlan(generated, input as DemoMenuModel);
       }
+      currentStage = "plan_generation";
+      logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
       return layoutPlanGenerator(input as LayoutPlanRequest, policy as LayoutPolicy);
     });
     layoutPlanCache.set(requestKey, { expiresAt: now + 30_000, result });
@@ -373,9 +495,19 @@ export function createApp(
     }
 
     try {
-      return res.json(await result);
+      const plan = await result;
+      if (isDemoMenu) {
+        logAiLayoutDiagnostic(requestId, "plan_validation", { outcome: "passed", openaiAttempted, timedOut });
+      }
+      return res.json(plan);
     } catch (error) {
       layoutPlanCache.delete(requestKey);
+      logAiLayoutDiagnostic(requestId, currentStage, {
+        outcome: "failed",
+        errorCode: safeAiLayoutErrorCode(error, currentStage),
+        openaiAttempted,
+        timedOut,
+      });
       if (error instanceof Error && error.message === "AI_NOT_CONFIGURED") {
         return fail(res, 503, "화면 구성 계획 API가 아직 설정되지 않았어요.");
       }

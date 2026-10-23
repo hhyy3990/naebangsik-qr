@@ -8,3 +8,9 @@ The first demonstration targets only DemoCafe `cafe.menu` contract v2 (`menu.v2`
 **Why:** The goal is to demonstrate an actual model-selected layout while keeping the kiosk's data and business actions under application control; trusting opaque hashes or operation semantics could authorize unsafe layouts.
 
 **How to apply:** Keep host-specific request/plan contracts isolated from the legacy generic SHA-256 schema; recompute the documented hashes and enforce the host's model, accessibility, pairing, and ordering rules.
+
+For central AI-layout diagnostics, log only a random request ID, controlled stage names, status/error codes, OpenAI-attempt and timeout booleans. Never log credentials, QR/profile data, request bodies, generated plans, or token-bearing URLs; keep client errors generic.
+
+**Why:** Cross-app failures need stage-level evidence without turning diagnostic logs into a source of credentials or user data.
+
+**How to apply:** Add diagnostics at the central endpoint and provider adapter, expose the random request ID as a response header for relay correlation, and use mocked providers for tests.

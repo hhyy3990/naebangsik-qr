@@ -84,18 +84,52 @@ test("DemoCafe v2 OpenAI adapter uses strict structured output and validates the
   const regular = model("regular");
   const plan = makePlan(regular, [columns(1)]);
   let captured: Record<string, unknown> | undefined;
+  const diagnosticEvents: string[] = [];
+  let providerCalls = 0;
   const client = {
     responses: {
       create: async (params: Record<string, unknown>) => {
+        providerCalls += 1;
         captured = params;
         return { output_text: JSON.stringify(plan) };
       },
     },
   } as unknown as OpenAI;
-  assert.deepEqual(await generateDemoMenuPlan(regular, client), plan);
+  assert.deepEqual(await generateDemoMenuPlan(regular, client, (event) => diagnosticEvents.push(event)), plan);
+  assert.equal(providerCalls, 1);
+  assert.deepEqual(diagnosticEvents, [
+    "openai_attempt",
+    "openai_response",
+    "json_parse_started",
+    "json_parsed",
+    "plan_validation_started",
+    "plan_validated",
+  ]);
   assert.equal(captured?.store, false);
   assert.equal((captured?.text as { format: { strict: boolean } }).format.strict, true);
   assert.equal(captured?.max_output_tokens, 700);
+});
+
+test("DemoCafe v2 adapter reports a mocked provider timeout without retrying", async () => {
+  const regular = model("regular");
+  let providerCalls = 0;
+  const diagnosticEvents: string[] = [];
+  const timeout = Object.assign(new Error("simulated timeout"), { name: "APIConnectionTimeoutError" });
+  const client = {
+    responses: {
+      create: async () => {
+        providerCalls += 1;
+        throw timeout;
+      },
+    },
+  } as unknown as OpenAI;
+
+  await assert.rejects(
+    generateDemoMenuPlan(regular, client, (event) => diagnosticEvents.push(event)),
+    /simulated timeout/,
+  );
+  assert.equal(providerCalls, 1);
+  assert.deepEqual(diagnosticEvents, ["openai_attempt", "openai_timeout"]);
 });
 
 test("DemoCafe v2 rejects V4-V6 unsafe columns and malformed operation combinations", () => {
@@ -140,6 +174,7 @@ test("AI layout endpoint authenticates and applies the server-owned DemoCafe pol
     .set("Authorization", `Bearer ${token}`)
     .send(input);
   assert.equal(response.status, 200);
+  assert.match(response.headers["x-request-id"], /^[0-9a-f-]{36}$/);
   assert.deepEqual(response.body, plan);
   assert.equal(calls, 1);
   const invalid = await request(app)
@@ -148,4 +183,26 @@ test("AI layout endpoint authenticates and applies the server-owned DemoCafe pol
     .send({ ...input, structureHash: "deadbeef" });
   assert.equal(invalid.status, 400);
   assert.equal(calls, 1);
+});
+
+test("AI layout endpoint rejects a malformed mock plan with a generic 502 and no provider call", async () => {
+  const input = model("regular");
+  const token = "demo-layout-test-token-not-a-real-secret";
+  let generatorCalls = 0;
+  const app = createApp({} as Pool, undefined, {
+    serviceToken: token,
+    demoMenuPlanGenerator: async () => {
+      generatorCalls += 1;
+      return { ...makePlan(input, [columns(1)]), constraintHash: "deadbeef" };
+    },
+  });
+
+  const response = await request(app)
+    .post("/api/ai-layout/plan")
+    .set("Authorization", `Bearer ${token}`)
+    .send(input);
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(response.body, { error: "화면 구성 계획을 만들지 못했어요. 기존 화면을 유지해 주세요." });
+  assert.equal(generatorCalls, 1);
 });
