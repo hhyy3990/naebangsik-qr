@@ -8,6 +8,8 @@
 - route는 `universalLayoutDevelopmentMockProvider`만 사용한다. 이 provider는 각 component에서 허용된 첫 열 수를 반환하는 결정적 in-memory Mock이며 OpenAI/네트워크/저장소를 사용하지 않는다.
 - route는 요청의 `model`을 strict schema로 확인하고, 등록된 host/screen인지 검사하며, 기존 service Bearer token으로 보호한다. 테스트 우회 헤더는 인정하지 않는다.
 - 유효하지 않은 모델·JSON·plan은 명시적인 오류 코드로 거부한다. retry, 자동 수정, 기본 레이아웃 변경은 하지 않는다. 호출자는 오류 시 기존 화면을 그대로 유지해야 한다.
+- Civil kiosk fixture는 전달받은 Development 열 값(320/360px `[1]`, 390/1080px `[1, 2]`)을 사용해 compact `[1]`, regular `[1, 2]`, wide `[1, 2]`로 제한한다. 픽셀 폭과 viewportClass의 대응은 아직 가정이다. 큰 글씨·큰 버튼·고대비·하단 viewport에서는 `[1]`만 허용한다.
+- `civil-kiosk-mock` 및 `civil-main-mock.v1`은 fixture 값일 뿐 실제 호스트 등록값이 아니다. 실제 structure/constraint hash golden vector가 없어 호스트 간 hash 호환성은 아직 검증할 수 없다.
 
 ## Provider 입력과 개인정보 경계
 

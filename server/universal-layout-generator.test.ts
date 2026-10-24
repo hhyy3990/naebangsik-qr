@@ -29,9 +29,12 @@ const standardAccessibility = {
   viewportMode: null,
 };
 
-function makeModel(policy: UniversalLayoutPolicy): UniversalLayoutModel {
+function makeModel(
+  policy: UniversalLayoutPolicy,
+  viewportClass: "compact" | "regular" | "wide" = "regular",
+): UniversalLayoutModel {
   return createUniversalLayoutModel(policy, {
-    viewportClass: "regular",
+    viewportClass,
     accessibility: standardAccessibility,
     componentState: policy.components.map((component) => ({
       id: component.id,
@@ -106,6 +109,14 @@ test("the common structured schema derives target IDs and allowed columns from p
   };
   assert.equal(civilOperations.items.properties.targetId.const, "civil.certificate-grid");
   assert.deepEqual(civilOperations.items.properties.columns.enum, [1, 2]);
+
+  const civilWideSchema = createUniversalLayoutPlanJsonSchema(
+    makeModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY, "wide"),
+  );
+  const civilWideOperations = civilWideSchema.properties.operations as {
+    items: { properties: Record<string, { const?: string; enum?: number[] }> };
+  };
+  assert.deepEqual(civilWideOperations.items.properties.columns.enum, [1, 2]);
 });
 
 test("disallowed values, cross-host plans, and extra fields fail without repair or retry", async () => {
@@ -148,6 +159,16 @@ test("disallowed values, cross-host plans, and extra fields fail without repair 
     (error: unknown) => error instanceof UniversalLayoutGenerationError &&
       error.code === "PLAN_REJECTED" && error.validationCode === "DISALLOWED_COLUMN_COUNT",
   );
+  const civilWideModel = makeModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY, "wide");
+  await assert.rejects(
+    generateUniversalLayoutPlan({
+      model: civilWideModel,
+      policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+      provider: mockProvider((payload) => validPlan(payload, 3), () => { providerCalls += 1; }),
+    }),
+    (error: unknown) => error instanceof UniversalLayoutGenerationError &&
+      error.code === "PLAN_REJECTED" && error.validationCode === "DISALLOWED_COLUMN_COUNT",
+  );
 
   await expectRejected({
     ...validPlan({
@@ -177,7 +198,7 @@ test("disallowed values, cross-host plans, and extra fields fail without repair 
     (error: unknown) => error instanceof UniversalLayoutGenerationError &&
       error.code === "INVALID_STRUCTURED_OUTPUT",
   );
-  assert.equal(providerCalls, 4);
+  assert.equal(providerCalls, 5);
 });
 
 test("private or business content is not copied into the generation payload", async () => {

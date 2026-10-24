@@ -21,7 +21,9 @@ export const DEMO_COFFEE_UNIVERSAL_MOCK_POLICY: UniversalLayoutPolicy = {
   }],
 };
 
-// Test-only policy assumptions. This is not an approved real kiosk policy.
+// Development-only fixture copied from the supplied width-specific execution values.
+// The mapping from pixel widths to these viewport classes is still an assumption.
+// Actual hostId/structureVersion and hash compatibility remain unconfirmed.
 export const CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY: UniversalLayoutPolicy = {
   hostId: "civil-kiosk-mock",
   screenId: "civil.main-menu",
@@ -33,7 +35,7 @@ export const CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY: UniversalLayoutPolicy = {
     order: 0,
     itemCountRange: [18, 18],
     operations: ["setColumns"],
-    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2, 3] },
+    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2] },
     singleColumnForLargeText: true,
     singleColumnForLargeButtons: true,
     singleColumnForHighContrast: true,

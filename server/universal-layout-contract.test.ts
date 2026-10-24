@@ -83,10 +83,18 @@ test("civil kiosk fixture uses the same repeated-card-list validator and explici
   );
 
   const wideModel = validateUniversalLayoutModel(modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY, "wide"), policies);
-  assert.deepEqual(wideModel.components[0].allowedColumns, [1, 2, 3]);
+  assert.deepEqual(wideModel.components[0].allowedColumns, [1, 2]);
+  assert.equal(wideModel.structureHash, model.structureHash);
+  assert.notEqual(wideModel.constraintHash, model.constraintHash);
   assert.doesNotThrow(() =>
-    validateUniversalLayoutPlan(planFor(wideModel, "civil.certificate-grid", 3), wideModel, policies),
+    validateUniversalLayoutPlan(planFor(wideModel, "civil.certificate-grid", 2), wideModel, policies),
   );
+  assert.throws(() =>
+    validateUniversalLayoutPlan(planFor(wideModel, "civil.certificate-grid", 3), wideModel, policies),
+    /DISALLOWED_COLUMN_COUNT/,
+  );
+  const compactModel = validateUniversalLayoutModel(modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY, "compact"), policies);
+  assert.deepEqual(compactModel.components[0].allowedColumns, [1]);
   assert.throws(() =>
     validateUniversalLayoutPlan(planFor(model, "civil.certificate-grid", 3), model, policies),
     /DISALLOWED_COLUMN_COUNT/,
@@ -112,6 +120,31 @@ test("accessibility policy restricts columns and enforces minimum touch target",
     accessibility: standardAccessibility,
     componentState: [{ id: "menu.product-list", itemCount: 12, itemOrderHash: fixtureHash("menu-fixture") }],
   }), /POLICY_COMPONENT_INVALID/);
+});
+
+test("civil kiosk fixture forces one column for large text, large buttons, high contrast, and bottom viewport", () => {
+  const profiles = [
+    { ...standardAccessibility, textScale: "large" as const },
+    { ...standardAccessibility, buttonScale: "large" as const },
+    { ...standardAccessibility, contrast: "high" as const },
+    { ...standardAccessibility, viewportMode: { mode: "bottom" as const, heightPercent: 70 as const } },
+  ];
+  for (const accessibility of profiles) {
+    const model = createUniversalLayoutModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY, {
+      viewportClass: "regular",
+      accessibility,
+      componentState: [{
+        id: "civil.certificate-grid",
+        itemCount: 18,
+        itemOrderHash: fixtureHash("civil-accessibility-fixture"),
+      }],
+    });
+    assert.deepEqual(model.components[0].allowedColumns, [1]);
+    assert.throws(() =>
+      validateUniversalLayoutPlan(planFor(model, "civil.certificate-grid", 2), model, policies),
+      /DISALLOWED_COLUMN_COUNT/,
+    );
+  }
 });
 
 test("unregistered operations, targets, model mutations, and cross-host plans are rejected", () => {
