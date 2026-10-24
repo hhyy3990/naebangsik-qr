@@ -188,7 +188,7 @@ export async function generateDemoMenuPlan(
     store: false,
     max_output_tokens: 700,
     input: [
-      { role: "system", content: "Return only a safe DemoCoffee menu v2 layout plan. Follow the validated model's allowedColumns, preserve product content/order/actions/fixed controls, and obey operation pairing/order. Never generate code." },
+      { role: "system", content: "Return only a safe DemoCoffee menu v2 layout plan. Follow the validated model's allowedColumns, preserve product content/order/actions/fixed controls, and obey operation pairing/order. setGroupFlow and setChildBasis must either both be present or both be absent. If both are present, explicitly include setGroupColumns with columns: 1. A plan with 2 effective columns must include neither setGroupFlow nor setChildBasis. If setGroupColumns is omitted, use the model's defaultColumns as the effective count. When allowedColumns includes both 1 and 2, either choice is valid; do not always force 1 column. Never generate code." },
       { role: "user", content: JSON.stringify(model) },
     ],
     text: {

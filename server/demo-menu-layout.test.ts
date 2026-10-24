@@ -78,6 +78,7 @@ test("DemoCafe v2 accepts V1-V3 valid independent and combined layout plans", ()
   assert.doesNotThrow(() => validateDemoMenuPlan(makePlan(compact, [flow, basis]), compact)); // V1
   assert.doesNotThrow(() => validateDemoMenuPlan(makePlan(regular, [columns(1)]), regular)); // V2
   assert.doesNotThrow(() => validateDemoMenuPlan(makePlan(regular, [columns(1), flow, basis]), regular)); // V3
+  assert.doesNotThrow(() => validateDemoMenuPlan(makePlan(regular, [columns(2)]), regular));
 });
 
 test("DemoCafe v2 OpenAI adapter uses strict structured output and validates the mocked plan", async () => {
@@ -108,6 +109,13 @@ test("DemoCafe v2 OpenAI adapter uses strict structured output and validates the
   assert.equal(captured?.store, false);
   assert.equal((captured?.text as { format: { strict: boolean } }).format.strict, true);
   assert.equal(captured?.max_output_tokens, 700);
+  const prompt = ((captured?.input ?? []) as Array<{ role: string; content: string }>)
+    .find((message) => message.role === "system")?.content ?? "";
+  assert.match(prompt, /setGroupFlow and setChildBasis must either both be present or both be absent/);
+  assert.match(prompt, /explicitly include setGroupColumns with columns: 1/);
+  assert.match(prompt, /A plan with 2 effective columns must include neither setGroupFlow nor setChildBasis/);
+  assert.match(prompt, /If setGroupColumns is omitted, use the model's defaultColumns as the effective count/);
+  assert.match(prompt, /When allowedColumns includes both 1 and 2, either choice is valid; do not always force 1 column/);
 });
 
 test("DemoCafe v2 adapter reports a mocked provider timeout without retrying", async () => {
@@ -138,6 +146,10 @@ test("DemoCafe v2 rejects V4-V6 unsafe columns and malformed operation combinati
   const large = model("regular", true);
   assert.throws(() => validateDemoMenuPlan(makePlan(compact, [columns(2)]), compact)); // V4
   assert.throws(() => validateDemoMenuPlan(makePlan(regular, [columns(2), flow, basis]), regular)); // V5
+  assert.throws(
+    () => validateDemoMenuPlan(makePlan(regular, [flow, basis]), regular),
+    /CARD_LAYOUT_REQUIRES_SINGLE_COLUMN/,
+  ); // defaultColumns=2 applies when setGroupColumns is omitted
   assert.throws(() => validateDemoMenuPlan(makePlan(large, [columns(2)]), large)); // V6
   assert.throws(() => validateDemoMenuPlan(makePlan(regular, [flow]), regular));
   assert.throws(() => validateDemoMenuPlan(makePlan(regular, [basis, flow]), regular));
