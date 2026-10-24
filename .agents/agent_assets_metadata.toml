@@ -28,3 +28,17 @@ mtime_ms = 1792215353214
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/43107044-30b5-460a-899d-82c57c2c09dc/b9b27002-f778-44bf-a879-a373db2d0988"
 storage_version_token = "1792215410490695"
 content_type = "image/png"
+
+[[outputs]]
+id = "ZXbFBbX7IHItmlP3akv5r"
+uri = "file://UNIVERSAL_LAYOUT_CONTRACT_V1_DRAFT.md"
+type = "text"
+title = "Universal Layout Contract v1 설계 초안"
+description = "기존 menu.v2·options.v1 분석, 공통 모델/검증 설계, 키오스크 매핑, 개인정보 경계, SDK 책임, 단계적 전환 및 미확인 사항을 정리한 Markdown 문서입니다."
+logical_id = "c0b0e321-68f7-4c82-9735-84701bce62c4"
+content_hash = "sha256:c26b06a9599a916244132e9ea1cfca24f145ee89f551803ab1e6eca0cbc37300"
+size = 20594
+mtime_ms = 1792854510599
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/c0b0e321-68f7-4c82-9735-84701bce62c4/d2bc92de-260e-4ca4-b289-038ac1d03757"
+storage_version_token = "1792854532382723"
+content_type = "text/markdown"
