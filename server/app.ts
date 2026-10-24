@@ -25,7 +25,14 @@ import {
   type DemoMenuModel,
   type DemoMenuPlan,
 } from "./demo-menu-layout";
-import { registeredDemoMenuPolicies } from "./layout-policies";
+import {
+  generateDemoOptionsPlan,
+  validateDemoOptionsModel,
+  validateDemoOptionsPlan,
+  type DemoOptionsModel,
+  type DemoOptionsPlan,
+} from "./demo-options-layout";
+import { registeredDemoMenuPolicies, registeredDemoOptionsPolicies } from "./layout-policies";
 
 const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -185,6 +192,12 @@ function safeAiLayoutErrorCode(error: unknown, stage?: string): string {
     "INCOMPLETE_CARD_LAYOUT",
     "DISALLOWED_COLUMN_COUNT",
     "CARD_LAYOUT_REQUIRES_SINGLE_COLUMN",
+    "OPTIONS_STRUCTURE_HASH_MISMATCH",
+    "OPTIONS_CONSTRAINT_HASH_MISMATCH",
+    "UNSUPPORTED_OPTIONS_MODEL",
+    "INVALID_OPTIONS_COLUMN_CONSTRAINTS",
+    "OPTIONS_PLAN_MODEL_MISMATCH",
+    "DISALLOWED_OPTION_COLUMN_COUNT",
   ]);
   return allowedCodes.has(error.message) ? error.message : "GENERATION_OR_VALIDATION_ERROR";
 }
@@ -217,6 +230,19 @@ export function createApp(
         | "openai_timeout") => void,
     ) => Promise<DemoMenuPlan>;
     demoMenuPolicies?: typeof registeredDemoMenuPolicies;
+    demoOptionsPlanGenerator?: (
+      model: DemoOptionsModel,
+      client?: OpenAI,
+      onDiagnostic?: (event:
+        | "openai_attempt"
+        | "openai_response"
+        | "json_parse_started"
+        | "json_parsed"
+        | "plan_validation_started"
+        | "plan_validated"
+        | "openai_timeout") => void,
+    ) => Promise<DemoOptionsPlan>;
+    demoOptionsPolicies?: typeof registeredDemoOptionsPolicies;
     maxRequestsPerHost?: number;
   } = {},
 ) {
@@ -226,8 +252,10 @@ export function createApp(
   const layoutPlanCache = new Map<string, { expiresAt: number; result: Promise<unknown> }>();
   const layoutPolicies = layoutOptions.policies ?? [];
   const demoMenuPolicies = layoutOptions.demoMenuPolicies ?? registeredDemoMenuPolicies;
+  const demoOptionsPolicies = layoutOptions.demoOptionsPolicies ?? registeredDemoOptionsPolicies;
   const layoutPlanGenerator = layoutOptions.planGenerator ?? generateLayoutPlan;
   const demoMenuPlanGenerator = layoutOptions.demoMenuPlanGenerator ?? generateDemoMenuPlan;
+  const demoOptionsPlanGenerator = layoutOptions.demoOptionsPlanGenerator ?? generateDemoOptionsPlan;
   const allowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "")
       .split(",")
@@ -365,16 +393,23 @@ export function createApp(
     });
     if (!authorized) return fail(res, 401, "인증이 필요합니다.");
 
-    let input: LayoutPlanRequest | DemoMenuModel;
+    let input: LayoutPlanRequest | DemoMenuModel | DemoOptionsModel;
     let isDemoMenu = false;
+    let isDemoOptions = false;
     let demoPolicy: (typeof registeredDemoMenuPolicies)[number] | undefined;
+    let demoOptionsPolicy: (typeof registeredDemoOptionsPolicies)[number] | undefined;
     try {
-      isDemoMenu = Boolean(req.body && typeof req.body === "object" && "hostId" in req.body);
-      if (isDemoMenu) {
+      const isHostSpecificModel = Boolean(req.body && typeof req.body === "object" && "hostId" in req.body);
+      if (isHostSpecificModel) {
         demoPolicy = demoMenuPolicies.find((candidate) =>
           candidate.hostId === req.body.hostId && candidate.screenId === req.body.screenId,
         );
-        if (!demoPolicy) {
+        demoOptionsPolicy = demoOptionsPolicies.find((candidate) =>
+          candidate.hostId === req.body.hostId && candidate.screenId === req.body.screenId,
+        );
+        isDemoMenu = Boolean(demoPolicy);
+        isDemoOptions = Boolean(demoOptionsPolicy);
+        if (!demoPolicy && !demoOptionsPolicy) {
           currentStage = "policy_lookup";
           logAiLayoutDiagnostic(requestId, currentStage, {
             outcome: "rejected",
@@ -385,7 +420,9 @@ export function createApp(
       }
       input = isDemoMenu
         ? validateDemoMenuModel(req.body)
-        : validateLayoutPlanRequest(req.body, layoutPolicies);
+        : isDemoOptions
+          ? validateDemoOptionsModel(req.body)
+          : validateLayoutPlanRequest(req.body, layoutPolicies);
     } catch (error) {
       currentStage = "model_validation";
       logAiLayoutDiagnostic(requestId, currentStage, {
@@ -399,13 +436,19 @@ export function createApp(
     }
     currentStage = "model_validation";
     logAiLayoutDiagnostic(requestId, currentStage, { outcome: "passed" });
-    const hostId = isDemoMenu ? (input as DemoMenuModel).hostId : (input as LayoutPlanRequest).hostAppId;
+    const hostId = isDemoMenu
+      ? (input as DemoMenuModel).hostId
+      : isDemoOptions
+        ? (input as DemoOptionsModel).hostId
+        : (input as LayoutPlanRequest).hostAppId;
     const policy = isDemoMenu
       ? demoPolicy && { hostAppId: demoPolicy.hostId, screenId: demoPolicy.screenId }
-      : layoutPolicies.find((item) =>
-        item.hostAppId === (input as LayoutPlanRequest).hostAppId &&
-        item.screenId === (input as LayoutPlanRequest).screenId,
-      );
+      : isDemoOptions
+        ? demoOptionsPolicy && { hostAppId: demoOptionsPolicy.hostId, screenId: demoOptionsPolicy.screenId }
+        : layoutPolicies.find((item) =>
+          item.hostAppId === (input as LayoutPlanRequest).hostAppId &&
+          item.screenId === (input as LayoutPlanRequest).screenId,
+        );
     if (!policy) {
       logAiLayoutDiagnostic(requestId, "policy_lookup", { outcome: "rejected", errorCode: "UNSUPPORTED_SCREEN" });
       return fail(res, 404, "지원하지 않는 화면입니다.");
@@ -484,6 +527,43 @@ export function createApp(
         currentStage = "plan_validation";
         logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
         return validateDemoMenuPlan(generated, input as DemoMenuModel);
+      } else if (isDemoOptions) {
+        currentStage = "plan_generation";
+        logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
+        const generated = await demoOptionsPlanGenerator(
+          input as DemoOptionsModel,
+          undefined,
+          (event) => {
+            if (event === "openai_attempt") openaiAttempted = true;
+            if (event === "openai_timeout") timedOut = true;
+            const stageByEvent: Record<string, string> = {
+              openai_attempt: "openai_request",
+              openai_response: "openai_response",
+              json_parse_started: "json_parse",
+              json_parsed: "json_parse",
+              plan_validation_started: "plan_validation",
+              plan_validated: "plan_validation",
+              openai_timeout: "openai_request",
+            };
+            currentStage = stageByEvent[event] ?? currentStage;
+            const outcome =
+              event === "openai_attempt" || event === "json_parse_started" || event === "plan_validation_started"
+                ? "started"
+                : event === "openai_timeout"
+                  ? "failed"
+                  : "passed";
+            logAiLayoutDiagnostic(requestId, currentStage, {
+              outcome,
+              errorCode: event === "openai_timeout" ? "OPENAI_TIMEOUT" : undefined,
+              openaiAttempted,
+              timedOut,
+            });
+          },
+        );
+        logAiLayoutDiagnostic(requestId, "plan_generation", { outcome: "completed", openaiAttempted, timedOut });
+        currentStage = "plan_validation";
+        logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
+        return validateDemoOptionsPlan(generated, input as DemoOptionsModel);
       }
       currentStage = "plan_generation";
       logAiLayoutDiagnostic(requestId, currentStage, { outcome: "started" });
@@ -503,7 +583,7 @@ export function createApp(
 
     try {
       const plan = await result;
-      if (isDemoMenu) {
+      if (isDemoMenu || isDemoOptions) {
         logAiLayoutDiagnostic(requestId, "plan_validation", { outcome: "passed", openaiAttempted, timedOut });
       }
       return res.json(plan);
