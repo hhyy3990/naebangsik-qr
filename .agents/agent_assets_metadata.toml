@@ -42,3 +42,17 @@ mtime_ms = 1792854510599
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/c0b0e321-68f7-4c82-9735-84701bce62c4/d2bc92de-260e-4ca4-b289-038ac1d03757"
 storage_version_token = "1792854532382723"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "jdjs4361mm7zKx5A3nmoT"
+uri = "file://generated-artifacts/universal-layout-v1-contract.zip"
+type = "unspecified"
+title = "Universal Layout Contract v1 호스트 패키지"
+description = "중앙 TypeScript 원본·테스트, DemoCoffee Mock 정책, 예제, golden vector, README 및 ESM/Node 설정을 포함한 ZIP입니다."
+logical_id = "d28c29be-df73-4c60-a1c9-d52fea5f2d17"
+content_hash = "sha256:6fbe3b8396168c8303b5bd07f18e7c362d4578e19ccd59ed3c2b9457e8557c43"
+size = 11107
+mtime_ms = 1792856311251
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/d28c29be-df73-4c60-a1c9-d52fea5f2d17/957a0381-5677-4349-8d1b-556cec6573d3"
+storage_version_token = "1792856342872428"
+content_type = "application/octet-stream"
