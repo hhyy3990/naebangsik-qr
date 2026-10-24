@@ -33,6 +33,11 @@ import {
   type DemoOptionsPlan,
 } from "./demo-options-layout";
 import { registeredDemoMenuPolicies, registeredDemoOptionsPolicies } from "./layout-policies";
+import {
+  generateUniversalLayoutPlan,
+} from "./universal-layout-generator";
+import { UNIVERSAL_LAYOUT_MOCK_POLICIES } from "./universal-layout-mock-policies";
+import { universalLayoutDevelopmentMockProvider, universalLayoutDevelopmentRequestSchema } from "./universal-layout-development-mock";
 
 const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -293,6 +298,50 @@ export function createApp(
     process.env.NODE_ENV !== "production" && req.get("X-Test-Mode") === "true";
 
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+
+  const universalDevMockEnabled =
+    process.env.NODE_ENV === "development" &&
+    process.env.UNIVERSAL_LAYOUT_DEV_MOCK_API === "true";
+  if (universalDevMockEnabled) {
+    app.post("/api/dev/universal-layout/plan", asyncRoute(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
+      if (!expectedToken) return fail(res, 503, "Development Mock API 인증 설정이 없습니다.");
+
+      const authorization = req.get("authorization") ?? "";
+      const match = /^Bearer ([^\s]+)$/.exec(authorization);
+      const provided = match?.[1] ?? "";
+      const expectedBuffer = Buffer.from(expectedToken);
+      const providedBuffer = Buffer.from(provided);
+      const authorized =
+        expectedBuffer.length === providedBuffer.length &&
+        timingSafeEqual(expectedBuffer, providedBuffer);
+      if (!authorized) return fail(res, 401, "인증이 필요합니다.");
+
+      const parsed = universalLayoutDevelopmentRequestSchema.safeParse(req.body);
+      if (!parsed.success) return fail(res, 400, "Universal v1 모델을 확인해 주세요.");
+      const model = parsed.data.model;
+      const registered = UNIVERSAL_LAYOUT_MOCK_POLICIES.some((policy) =>
+        policy.hostId === model.hostId && policy.screenId === model.screenId,
+      );
+      if (!registered) return fail(res, 404, "등록되지 않은 Development Mock 화면입니다.");
+
+      try {
+        const plan = await generateUniversalLayoutPlan({
+          model,
+          policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+          provider: universalLayoutDevelopmentMockProvider,
+        });
+        return res.json(plan);
+      } catch (error) {
+        const code = error instanceof Error && "code" in error && typeof error.code === "string"
+          ? error.code
+          : "GENERATION_FAILED";
+        const status = code === "INVALID_MODEL" ? 400 : 502;
+        return fail(res, status, code);
+      }
+    }));
+  }
 
   app.get("/api/public-config", (_req, res) => {
     const isProduction = process.env.NODE_ENV === "production";
