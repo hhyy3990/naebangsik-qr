@@ -12,53 +12,14 @@ import {
   type UniversalLayoutPlan,
   type UniversalLayoutPolicy,
 } from "./universal-layout-contract";
+import {
+  CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY,
+  DEMO_COFFEE_UNIVERSAL_MOCK_POLICY,
+  UNIVERSAL_LAYOUT_MOCK_POLICIES,
+} from "./universal-layout-mock-policies";
 
 const fixtureHash = (name: string) => universalSha256({ fixture: name });
-
-const demoCoffeePolicy: UniversalLayoutPolicy = {
-  hostId: "democoffee",
-  screenId: "cafe.menu",
-  structureVersion: "menu.v2",
-  components: [{
-    id: "menu.product-list",
-    kind: "repeated-card-list",
-    role: "ordered-menu-list",
-    order: 0,
-    itemCountRange: [0, 100],
-    operations: ["setColumns"],
-    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2] },
-    singleColumnForLargeText: true,
-    singleColumnForLargeButtons: true,
-    singleColumnForHighContrast: false,
-    singleColumnForBottomViewport: false,
-    minimumTouchTargetPx: 44,
-    protectedProperties: ["items", "order", "selection", "actions"],
-  }],
-};
-
-// Mock-only allowed columns. They are test assumptions, not an approved civil-kiosk policy.
-const civilServiceMockPolicy: UniversalLayoutPolicy = {
-  hostId: "civil-kiosk-mock",
-  screenId: "civil.main-menu",
-  structureVersion: "civil-main-mock.v1",
-  components: [{
-    id: "civil.certificate-grid",
-    kind: "repeated-card-list",
-    role: "certificate-choice-list",
-    order: 0,
-    itemCountRange: [18, 18],
-    operations: ["setColumns"],
-    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2, 3] },
-    singleColumnForLargeText: true,
-    singleColumnForLargeButtons: true,
-    singleColumnForHighContrast: true,
-    singleColumnForBottomViewport: true,
-    minimumTouchTargetPx: 44,
-    protectedProperties: ["items", "order", "selection", "issuance-actions"],
-  }],
-};
-
-const policies = [demoCoffeePolicy, civilServiceMockPolicy] as const;
+const policies = UNIVERSAL_LAYOUT_MOCK_POLICIES;
 const standardAccessibility = {
   textScale: "standard" as const,
   buttonScale: "standard" as const,
@@ -105,7 +66,7 @@ test("SHA-256 canonical JSON matches a stable golden vector", () => {
 });
 
 test("one policy validator accepts menu.v2 one- and two-column mock plans", () => {
-  const model = validateUniversalLayoutModel(modelFor(demoCoffeePolicy), policies);
+  const model = validateUniversalLayoutModel(modelFor(DEMO_COFFEE_UNIVERSAL_MOCK_POLICY), policies);
   for (const columns of [1, 2]) {
     assert.doesNotThrow(() =>
       validateUniversalLayoutPlan(planFor(model, "menu.product-list", columns), model, policies),
@@ -114,14 +75,14 @@ test("one policy validator accepts menu.v2 one- and two-column mock plans", () =
 });
 
 test("civil kiosk fixture uses the same repeated-card-list validator and explicit mock columns", () => {
-  const model = validateUniversalLayoutModel(modelFor(civilServiceMockPolicy), policies);
+  const model = validateUniversalLayoutModel(modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY), policies);
   assert.equal(model.components[0].itemCount, 18);
   assert.deepEqual(model.components[0].allowedColumns, [1, 2]);
   assert.doesNotThrow(() =>
     validateUniversalLayoutPlan(planFor(model, "civil.certificate-grid", 2), model, policies),
   );
 
-  const wideModel = validateUniversalLayoutModel(modelFor(civilServiceMockPolicy, "wide"), policies);
+  const wideModel = validateUniversalLayoutModel(modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY, "wide"), policies);
   assert.deepEqual(wideModel.components[0].allowedColumns, [1, 2, 3]);
   assert.doesNotThrow(() =>
     validateUniversalLayoutPlan(planFor(wideModel, "civil.certificate-grid", 3), wideModel, policies),
@@ -133,7 +94,7 @@ test("civil kiosk fixture uses the same repeated-card-list validator and explici
 });
 
 test("accessibility policy restricts columns and enforces minimum touch target", () => {
-  const largeTextModel = createUniversalLayoutModel(demoCoffeePolicy, {
+  const largeTextModel = createUniversalLayoutModel(DEMO_COFFEE_UNIVERSAL_MOCK_POLICY, {
     viewportClass: "regular",
     accessibility: { ...standardAccessibility, textScale: "large" },
     componentState: [{ id: "menu.product-list", itemCount: 12, itemOrderHash: fixtureHash("menu-large-text-fixture") }],
@@ -144,8 +105,8 @@ test("accessibility policy restricts columns and enforces minimum touch target",
     /DISALLOWED_COLUMN_COUNT/,
   );
   assert.throws(() => createUniversalLayoutModel({
-    ...demoCoffeePolicy,
-    components: [{ ...demoCoffeePolicy.components[0], minimumTouchTargetPx: 43 }],
+    ...DEMO_COFFEE_UNIVERSAL_MOCK_POLICY,
+    components: [{ ...DEMO_COFFEE_UNIVERSAL_MOCK_POLICY.components[0], minimumTouchTargetPx: 43 }],
   }, {
     viewportClass: "regular",
     accessibility: standardAccessibility,
@@ -154,7 +115,7 @@ test("accessibility policy restricts columns and enforces minimum touch target",
 });
 
 test("unregistered operations, targets, model mutations, and cross-host plans are rejected", () => {
-  const model = modelFor(demoCoffeePolicy);
+  const model = modelFor(DEMO_COFFEE_UNIVERSAL_MOCK_POLICY);
   const goodPlan = planFor(model, "menu.product-list", 1);
   assert.throws(() => validateUniversalLayoutPlan({
     ...goodPlan,
@@ -168,7 +129,7 @@ test("unregistered operations, targets, model mutations, and cross-host plans ar
     ...model,
     structureHash: "0".repeat(64),
   }, policies), /STRUCTURE_HASH_MISMATCH/);
-  const civilModel = modelFor(civilServiceMockPolicy);
+  const civilModel = modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY);
   assert.throws(() =>
     validateUniversalLayoutPlan(goodPlan, civilModel, policies),
     /PLAN_MODEL_MISMATCH/,
@@ -176,7 +137,7 @@ test("unregistered operations, targets, model mutations, and cross-host plans ar
 });
 
 test("the 18-item mock cannot change item count or order through the plan contract", () => {
-  const model = modelFor(civilServiceMockPolicy);
+  const model = modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY);
   const plan = planFor(model, "civil.certificate-grid", 2);
   assert.equal(model.components[0].itemCount, 18);
   assert.equal(model.components[0].itemOrderHash, fixtureHash("civil.certificate-grid-ordered-fixture-v1"));
