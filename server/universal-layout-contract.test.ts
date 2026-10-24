@@ -175,6 +175,14 @@ test("civil kiosk nine golden vectors are independently reproduced by the shared
     assert.equal(model.constraintHash, vector.constraintHash, vector.name);
 
     if (vector.bottomControls) {
+      const hostPolicyModel = validateUniversalLayoutModel(model, [policy]);
+      assert.doesNotThrow(() =>
+        validateUniversalLayoutPlan(planFor(hostPolicyModel, "civil.certificate-grid", 1), hostPolicyModel, [policy]),
+      );
+      assert.throws(() =>
+        validateUniversalLayoutPlan(planFor(hostPolicyModel, "civil.certificate-grid", 2), hostPolicyModel, [policy]),
+        /DISALLOWED_COLUMN_COUNT/,
+      );
       assert.throws(
         () => validateUniversalLayoutModel(model, policies),
         /COMPONENT_POLICY_MISMATCH/,
