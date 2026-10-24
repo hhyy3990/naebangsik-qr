@@ -101,6 +101,104 @@ test("civil kiosk fixture uses the same repeated-card-list validator and explici
   );
 });
 
+test("civil kiosk nine golden vectors are independently reproduced by the shared Universal v1 hashing code", () => {
+  const orderedItemIds = Array.from(
+    { length: 18 },
+    (_, index) => `civil.certificate.${String(index + 1).padStart(2, "0")}`,
+  );
+  const itemOrderHash = universalSha256({ orderedItemIds });
+  assert.equal(itemOrderHash, "1f984cacde0e9014a80a73b90f15ea8a2ca3002ee5a1a65b737cd8fe11e9342c");
+
+  const vectors: {
+    name: string;
+    viewportClass: "compact" | "regular" | "wide";
+    accessibility: typeof standardAccessibility | {
+      textScale: "large";
+      buttonScale: "standard";
+      contrast: "standard";
+      viewportMode: null;
+    } | {
+      textScale: "standard";
+      buttonScale: "large";
+      contrast: "standard";
+      viewportMode: null;
+    } | {
+      textScale: "standard";
+      buttonScale: "standard";
+      contrast: "high";
+      viewportMode: null;
+    } | {
+      textScale: "standard";
+      buttonScale: "standard";
+      contrast: "standard";
+      viewportMode: { mode: "bottom"; heightPercent: 80 };
+    };
+    allowedColumns: number[];
+    constraintHash: string;
+    bottomControls?: boolean;
+  }[] = [
+    { name: "320px standard", viewportClass: "compact", accessibility: standardAccessibility, allowedColumns: [1], constraintHash: "adb813aa6fb8276e2dfe63188e7a169e5d38395eac11c8312e43aad5496ef1d5" },
+    { name: "360px standard", viewportClass: "compact", accessibility: standardAccessibility, allowedColumns: [1], constraintHash: "adb813aa6fb8276e2dfe63188e7a169e5d38395eac11c8312e43aad5496ef1d5" },
+    { name: "390px standard", viewportClass: "regular", accessibility: standardAccessibility, allowedColumns: [1, 2], constraintHash: "d18ee30970e42458e830b1add156184eb862d14c10633a44aa22ab1f41213b2a" },
+    { name: "1080px standard", viewportClass: "wide", accessibility: standardAccessibility, allowedColumns: [1, 2], constraintHash: "1b771f4cd9c43c7311cd95c27eb316aa96909cda355d13dc7c6cc24940a44463" },
+    { name: "390px large text", viewportClass: "regular", accessibility: { ...standardAccessibility, textScale: "large" }, allowedColumns: [1], constraintHash: "2cd8c25f2b197832d1b6d9cba75a9e4bd28fdf6742e896bc1ba3a048aff008af" },
+    { name: "390px large button", viewportClass: "regular", accessibility: { ...standardAccessibility, buttonScale: "large" }, allowedColumns: [1], constraintHash: "32b8db345f531bbf63728d7270d70133b35a079a8067d92d2a12f28500d500bc" },
+    { name: "390px high contrast", viewportClass: "regular", accessibility: { ...standardAccessibility, contrast: "high" }, allowedColumns: [1], constraintHash: "1fbc74335278dc9bdeaded6b953b2802f641301c3a8fab1d9a236f0bb60921c2" },
+    { name: "390px bottom viewport", viewportClass: "regular", accessibility: { ...standardAccessibility, viewportMode: { mode: "bottom", heightPercent: 80 } }, allowedColumns: [1], constraintHash: "abce520b55c6e47350afe6317646109afef0fba7a400c1eb12de17ff15e7fc54" },
+    { name: "390px bottom controls (host-local policy)", viewportClass: "regular", accessibility: standardAccessibility, allowedColumns: [1], constraintHash: "cbe6a636f748e176e38529d5211f262b307fa1de3351a54efdea91974d634ef1", bottomControls: true },
+  ];
+
+  for (const vector of vectors) {
+    const policy: UniversalLayoutPolicy = vector.bottomControls
+      ? {
+          ...CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY,
+          components: CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY.components.map((component) => ({
+            ...component,
+            allowedColumnsByViewport: { ...component.allowedColumnsByViewport, regular: [1] },
+          })),
+        }
+      : CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY;
+    const model = createUniversalLayoutModel(policy, {
+      viewportClass: vector.viewportClass,
+      accessibility: vector.accessibility,
+      componentState: [{ id: "civil.certificate-grid", itemCount: 18, itemOrderHash }],
+    });
+
+    assert.equal(model.schemaVersion, 1, vector.name);
+    assert.equal(model.contractVersion, "universal-layout.v1", vector.name);
+    assert.equal(model.hostId, "civil-kiosk-mock", vector.name);
+    assert.equal(model.screenId, "civil.main-menu", vector.name);
+    assert.equal(model.structureVersion, "civil-main-mock.v1", vector.name);
+    assert.equal(model.components[0].id, "civil.certificate-grid", vector.name);
+    assert.deepEqual(model.components[0].allowedColumns, vector.allowedColumns, vector.name);
+    assert.equal(model.structureHash, "70dbb9c683297736d73f982a88c107394d7c643385a653c4c3480723a1a2419b", vector.name);
+    assert.equal(model.constraintHash, vector.constraintHash, vector.name);
+
+    if (vector.bottomControls) {
+      assert.throws(
+        () => validateUniversalLayoutModel(model, policies),
+        /COMPONENT_POLICY_MISMATCH/,
+        "central registry has no separate bottomControls policy",
+      );
+    } else {
+      const registeredModel = validateUniversalLayoutModel(model, policies);
+      assert.doesNotThrow(() =>
+        validateUniversalLayoutPlan(planFor(registeredModel, "civil.certificate-grid", 1), registeredModel, policies),
+      );
+      if (vector.allowedColumns.includes(2)) {
+        assert.doesNotThrow(() =>
+          validateUniversalLayoutPlan(planFor(registeredModel, "civil.certificate-grid", 2), registeredModel, policies),
+        );
+      } else {
+        assert.throws(() =>
+          validateUniversalLayoutPlan(planFor(registeredModel, "civil.certificate-grid", 2), registeredModel, policies),
+          /DISALLOWED_COLUMN_COUNT/,
+        );
+      }
+    }
+  }
+});
+
 test("accessibility policy restricts columns and enforces minimum touch target", () => {
   const largeTextModel = createUniversalLayoutModel(DEMO_COFFEE_UNIVERSAL_MOCK_POLICY, {
     viewportClass: "regular",
@@ -162,6 +260,10 @@ test("unregistered operations, targets, model mutations, and cross-host plans ar
     ...model,
     structureHash: "0".repeat(64),
   }, policies), /STRUCTURE_HASH_MISMATCH/);
+  assert.throws(() => validateUniversalLayoutModel({
+    ...model,
+    constraintHash: "0".repeat(64),
+  }, policies), /CONSTRAINT_HASH_MISMATCH/);
   const civilModel = modelFor(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY);
   assert.throws(() =>
     validateUniversalLayoutPlan(goodPlan, civilModel, policies),

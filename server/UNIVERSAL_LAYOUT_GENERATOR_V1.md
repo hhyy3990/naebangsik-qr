@@ -8,8 +8,10 @@
 - route는 `universalLayoutDevelopmentMockProvider`만 사용한다. 이 provider는 각 component에서 허용된 첫 열 수를 반환하는 결정적 in-memory Mock이며 OpenAI/네트워크/저장소를 사용하지 않는다.
 - route는 요청의 `model`을 strict schema로 확인하고, 등록된 host/screen인지 검사하며, 기존 service Bearer token으로 보호한다. 테스트 우회 헤더는 인정하지 않는다.
 - 유효하지 않은 모델·JSON·plan은 명시적인 오류 코드로 거부한다. retry, 자동 수정, 기본 레이아웃 변경은 하지 않는다. 호출자는 오류 시 기존 화면을 그대로 유지해야 한다.
-- Civil kiosk fixture는 전달받은 Development 열 값(320/360px `[1]`, 390/1080px `[1, 2]`)을 사용해 compact `[1]`, regular `[1, 2]`, wide `[1, 2]`로 제한한다. 픽셀 폭과 viewportClass의 대응은 아직 가정이다. 큰 글씨·큰 버튼·고대비·하단 viewport에서는 `[1]`만 허용한다.
-- `civil-kiosk-mock` 및 `civil-main-mock.v1`은 fixture 값일 뿐 실제 호스트 등록값이 아니다. 실제 structure/constraint hash golden vector가 없어 호스트 간 hash 호환성은 아직 검증할 수 없다.
+- Civil kiosk fixture는 확인된 벡터대로 320/360px compact `[1]`, 390px regular `[1, 2]`, 1080px wide `[1, 2]`를 허용한다. 큰 글씨·큰 버튼·고대비·하단 viewport에서는 `[1]`만 허용한다.
+- 중앙 Universal v1 공통 구현으로 18개 안정 ID와 아홉 조건의 structure/constraint hash를 재계산해 첨부 golden vector와 일치함을 테스트한다. 이는 소스 구현 호환성 확인이며 중앙 API의 실제 배포·등록 확인은 아니다.
+- Golden vector의 `bottomControls=true`는 schema field가 없고, 표준 regular 모델과 같은 accessibility 입력에서 별도 1열 정책을 선택한다. 그 1열 모델의 hash는 재현되지만 현재 중앙 registry의 표준 정책 검증은 이를 `COMPONENT_POLICY_MISMATCH`로 거부한다. 별도 contract 표현이나 안전한 좁힘 정책 결정이 필요하다.
+- `civil-kiosk-mock` 및 `civil-main-mock.v1`은 fixture 값일 뿐 실제 호스트 등록값이 아니다.
 
 ## Provider 입력과 개인정보 경계
 
