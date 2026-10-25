@@ -4,4 +4,5 @@
 - [QR profile schema evolution](qr-profile-schema-evolution.md) — normalize v1/v2 preferences to the current API shape on read; avoid bulk rewriting existing profile data.
 - [OpenAI recommendation privacy](openai-recommendation-privacy.md) — keep AI answers out of app storage and disclose provider-side abuse-log retention even when Responses storage is disabled.
 - [AI kiosk layout planning](ai-layout-planning.md) — first prove real AI selection among safe, predefined DemoCafe menu layouts; never execute generated UI code or alter commerce behavior.
+- [Universal v2 bottom reservation](universal-v2-bottom-reservation.md) — `reserved-bottom-controls` represents detected reserved screen space, not a user preference; absence is not proof of no fixed UI.
 - [Scroll-guidance rollout](scroll-guidance-rollout.md) — the planned “아래쪽 내용 안내” preference is opt-in and must default OFF across QR, legacy reads, and no-QR use.

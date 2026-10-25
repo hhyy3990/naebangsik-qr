@@ -8,6 +8,7 @@ import {
   createUniversalLayoutV2Model,
   validateUniversalLayoutV2Model,
   validateUniversalLayoutV2Plan,
+  type UniversalLayoutV2Accessibility,
   type UniversalLayoutV2Policy,
 } from "./universal-layout-contract-v2";
 import { CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY } from "./universal-layout-mock-policies";
@@ -74,10 +75,13 @@ const itemOrderHash = universalSha256({ orderedItemIds: Array.from(
 ) });
 const policies = [civilPolicy, demoCoffeePolicy] as const;
 
-function civilModel(layoutCapabilities: readonly ("reserved-bottom-controls")[] = []) {
+function civilModel(
+  layoutCapabilities: readonly ("reserved-bottom-controls")[] = [],
+  accessibility: UniversalLayoutV2Accessibility = standardAccessibility,
+) {
   return createUniversalLayoutV2Model(civilPolicy, {
     viewportClass: "regular",
-    accessibility: standardAccessibility,
+    accessibility,
     layoutCapabilities,
     componentState: [{ id: "civil.certificate-grid", itemCount: 18, itemOrderHash }],
   });
@@ -117,6 +121,40 @@ test("registered reserved-bottom-controls capability permits 1 column and reject
     (error: unknown) => error instanceof UniversalLayoutV2ValidationError && error.code === "DISALLOWED_COLUMN_COUNT",
   );
   assert.notEqual(model.constraintHash, civilModel().constraintHash);
+});
+
+test("bottom reservation capability is independent of user preference and viewport mode", () => {
+  // The mock's input represents positively detected reserved screen space,
+  // not the SDK's bottomControls preference value.
+  const noReservationAsserted = validateUniversalLayoutV2Model(civilModel(), policies);
+  const reservationPresent = validateUniversalLayoutV2Model(
+    civilModel(["reserved-bottom-controls"]), policies,
+  );
+  assert.deepEqual(noReservationAsserted.components[0].allowedColumns, [1, 2]);
+  assert.deepEqual(reservationPresent.components[0].allowedColumns, [1]);
+
+  const bottomViewportOnly = validateUniversalLayoutV2Model(civilModel([], {
+    ...standardAccessibility,
+    viewportMode: { mode: "bottom", heightPercent: 60 },
+  }), policies);
+  assert.deepEqual(bottomViewportOnly.layoutCapabilities, []);
+  assert.deepEqual(bottomViewportOnly.components[0].allowedColumns, [1]);
+  assert.notEqual(bottomViewportOnly.constraintHash, noReservationAsserted.constraintHash);
+});
+
+test("capability appearance or removal changes constraint hash and invalidates stale plans", () => {
+  const modelWithReservation = validateUniversalLayoutV2Model(
+    civilModel(["reserved-bottom-controls"]), policies,
+  );
+  const modelWithoutReservation = validateUniversalLayoutV2Model(civilModel(), policies);
+  assert.notEqual(modelWithReservation.constraintHash, modelWithoutReservation.constraintHash);
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      planFor(modelWithReservation, 1), modelWithoutReservation, policies,
+    ),
+    (error: unknown) => error instanceof UniversalLayoutV2ValidationError &&
+      error.code === "PLAN_MODEL_MISMATCH",
+  );
 });
 
 test("unknown and cross-host capabilities are rejected by registry policy", () => {
