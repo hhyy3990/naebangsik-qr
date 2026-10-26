@@ -5,4 +5,5 @@
 - [OpenAI recommendation privacy](openai-recommendation-privacy.md) — keep AI answers out of app storage and disclose provider-side abuse-log retention even when Responses storage is disabled.
 - [AI kiosk layout planning](ai-layout-planning.md) — first prove real AI selection among safe, predefined DemoCafe menu layouts; never execute generated UI code or alter commerce behavior.
 - [Universal v2 bottom reservation](universal-v2-bottom-reservation.md) — `reserved-bottom-controls` represents detected reserved screen space, not a user preference; absence is not proof of no fixed UI.
+- [Development API access](development-api-access.md) — Replit protection and the app’s service Bearer are separate; avoid leaking the protected URL when both are required.
 - [Scroll-guidance rollout](scroll-guidance-rollout.md) — the planned “아래쪽 내용 안내” preference is opt-in and must default OFF across QR, legacy reads, and no-QR use.

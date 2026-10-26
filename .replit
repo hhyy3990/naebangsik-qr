@@ -51,3 +51,6 @@ build = ["npm", "run", "build"]
 [userenv]
 
 [userenv.shared]
+
+[userenv.development]
+UNIVERSAL_LAYOUT_DEV_MOCK_API = "true"
