@@ -5,7 +5,7 @@
 - `universal-layout-generator.ts`는 contract model을 등록 정책으로 검증하고, 공통 system instruction·공통 structured-output schema를 provider에 전달한 뒤, 결과를 strict Zod plan schema와 기존 `validateUniversalLayoutPlan`으로 재검증한다.
 - host/screen 별 생성 함수나 prompt는 없다. `democoffee/cafe.menu` 및 `civil.main-menu`는 `universal-layout-mock-policies.ts`의 데이터만 다르다.
 - `POST /api/dev/universal-layout/plan`은 `NODE_ENV=development`이고 `UNIVERSAL_LAYOUT_DEV_MOCK_API=true`일 때만 등록된다. 기존 경로는 계속 `universalLayoutDevelopmentMockProvider`만 사용하며 각 component에서 허용된 첫 열 수를 반환하는 결정적 in-memory Mock이다.
-- 실제 provider 어댑터는 공통 OpenAI Responses API 클라이언트 패턴을 사용하고 `store:false`, 18초 timeout, 자동 재시도 없음으로 구성된다. provider 입력에는 기존 추상 prompt payload와 strict JSON Schema만 전달되며, 반환은 strict Zod schema와 공통 정책 validator를 다시 통과해야 한다.
+- 실제 provider 어댑터는 Universal v1 전용 `UNIVERSAL_LAYOUT_DEV_OPENAI_MODEL`을 사용하며, 미설정 시 `gpt-6-luna`를 선택한다. 전역 `OPENAI_MODEL`을 읽거나 바꾸지 않으므로 기존 AI 기능 설정과 분리된다. Responses API 요청은 `reasoning.effort=none`, `store:false`, 18초 timeout, 자동 재시도 없음, `max_output_tokens=500`이다. provider 입력에는 기존 추상 prompt payload와 strict JSON Schema만 전달되며, 반환은 strict Zod schema와 공통 정책 validator를 다시 통과해야 한다.
 - OpenAI 경로는 별도 `POST /api/dev/universal-layout/openai-plan`이며, `NODE_ENV=development`, `UNIVERSAL_LAYOUT_DEV_MOCK_API=true`, `UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER=true`가 모두 필요하다. 기본 OFF이며 기존 Mock API의 동작을 바꾸지 않는다. API 키가 없으면 provider 요청 전에 명시적으로 실패한다.
 - OpenAI 경로도 기존 service Bearer 인증과 동일한 등록 정책을 적용한다. Production에서는 route가 등록되지 않는다. 테스트는 Fake provider만 주입하며 실제 OpenAI나 외부 API를 호출하지 않는다.
 - route는 요청의 `model`을 strict schema로 확인하고, 등록된 host/screen인지 검사하며, 기존 service Bearer token으로 보호한다. 테스트 우회 헤더는 인정하지 않는다.

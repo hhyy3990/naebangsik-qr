@@ -20,7 +20,10 @@ export function createUniversalLayoutOpenAIProvider(options: {
     timeout: 18_000,
     maxRetries: 0,
   });
-  const model = options.model?.trim() || process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  const model =
+    options.model?.trim() ||
+    process.env.UNIVERSAL_LAYOUT_DEV_OPENAI_MODEL?.trim() ||
+    "gpt-6-luna";
 
   return {
     async generate({ systemInstruction, payload, responseSchema, signal }) {
@@ -28,6 +31,7 @@ export function createUniversalLayoutOpenAIProvider(options: {
         model,
         store: false,
         max_output_tokens: 500,
+        reasoning: { effort: "none" },
         input: [
           { role: "system", content: systemInstruction },
           { role: "user", content: JSON.stringify(payload) },
@@ -42,6 +46,10 @@ export function createUniversalLayoutOpenAIProvider(options: {
         },
       }, signal ? { signal } : undefined);
 
+      const wasRefused = response.output.some((item) =>
+        item.type === "message" && item.content.some((part) => part.type === "refusal"),
+      );
+      if (wasRefused) throw new Error("UNIVERSAL_LAYOUT_PROVIDER_REFUSED");
       if (!response.output_text) throw new Error("EMPTY_UNIVERSAL_LAYOUT_RESPONSE");
       return response.output_text;
     },
