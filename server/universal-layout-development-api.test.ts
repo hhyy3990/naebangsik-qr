@@ -185,6 +185,7 @@ test("Development Universal API logs only safe arrival diagnostics for success a
       const model = makeModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY);
       const success = await request(app)
         .post(route)
+        .query({ privateSentinel: "do-not-log-query" })
         .set("Authorization", `Bearer ${serviceToken}`)
         .send({ model });
       assert.equal(success.status, 200);
@@ -200,32 +201,81 @@ test("Development Universal API logs only safe arrival diagnostics for success a
         .set("Authorization", `Bearer ${serviceToken}`)
         .send({ model, privateSentinel: "do-not-log-request-body" });
       assert.equal(invalidEnvelope.status, 400);
+
+      const invalidJson = await request(app)
+        .post(route)
+        .set("Content-Type", "application/json")
+        .send("{invalid-json");
+      assert.equal(invalidJson.status, 400);
+
+      const unrelatedApiPath = await request(app)
+        .post("/api/not-the-universal-route")
+        .send({});
+      assert.equal(unrelatedApiPath.status, 404);
     } finally {
       console.info = originalInfo;
     }
 
-    assert.equal(lines.length, 3);
-    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
-    assert.deepEqual(records.map((record) => record.statusCode), [200, 401, 400]);
-    assert.deepEqual(records.map((record) => record.errorCode), [
+    const records = lines
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((record): record is Record<string, unknown> =>
+        record?.pathId === "universal_v1_express_entry" || record?.pathId === "universal_v1_plan",
+      );
+    const expressEntries = records.filter((record) => record.pathId === "universal_v1_express_entry");
+    const routeEntries = records.filter((record) => record.pathId === "universal_v1_plan");
+    assert.equal(expressEntries.length, 4);
+    assert.equal(routeEntries.length, 3);
+    assert.deepEqual(expressEntries.map((record) => record.statusCode), [200, 401, 400, 400]);
+    assert.deepEqual(expressEntries.map((record) => record.errorCode), [
+      "NONE",
+      "AUTH_REQUIRED",
+      "INVALID_REQUEST",
+      "INVALID_JSON",
+    ]);
+    assert.deepEqual(routeEntries.map((record) => record.statusCode), [200, 401, 400]);
+    assert.deepEqual(routeEntries.map((record) => record.errorCode), [
       "NONE",
       "AUTH_REQUIRED",
       "INVALID_REQUEST",
     ]);
+    assert.deepEqual(
+      expressEntries.slice(0, 3).map((record) => record.requestId),
+      routeEntries.map((record) => record.requestId),
+    );
+    assert.equal(expressEntries[3].requestId === routeEntries[0].requestId, false);
     for (const record of records) {
-      assert.deepEqual(Object.keys(record).sort(), [
-        "errorCode",
-        "pathId",
-        "requestId",
-        "requestReached",
-        "statusCode",
-      ]);
       assert.match(String(record.requestId), /^[0-9a-f-]{36}$/);
-      assert.equal(record.requestReached, true);
-      assert.equal(record.pathId, "universal_v1_plan");
+      assert.equal(record.statusCode !== undefined, true);
+      assert.equal(typeof record.errorCode, "string");
+      if (record.pathId === "universal_v1_express_entry") {
+        assert.deepEqual(Object.keys(record).sort(), [
+          "errorCode",
+          "expressReached",
+          "pathId",
+          "requestId",
+          "statusCode",
+        ]);
+        assert.equal(record.expressReached, true);
+      } else {
+        assert.deepEqual(Object.keys(record).sort(), [
+          "errorCode",
+          "pathId",
+          "requestId",
+          "requestReached",
+          "statusCode",
+        ]);
+        assert.equal(record.requestReached, true);
+      }
     }
     assert.equal(lines.join("\n").includes("do-not-log-credential"), false);
     assert.equal(lines.join("\n").includes("do-not-log-request-body"), false);
+    assert.equal(lines.join("\n").includes("do-not-log-query"), false);
   });
 });
 
@@ -249,7 +299,10 @@ test("Universal arrival diagnostics require the enabled Development route and st
     } finally {
       console.info = originalInfo;
     }
-    assert.equal(lines.some((line) => line.includes('"pathId":"universal_v1_plan"')), false);
+    assert.equal(lines.some((line) =>
+      line.includes('"pathId":"universal_v1_plan"') ||
+      line.includes('"pathId":"universal_v1_express_entry"'),
+    ), false);
   });
 
   await withEnvironment({
@@ -271,6 +324,9 @@ test("Universal arrival diagnostics require the enabled Development route and st
     } finally {
       console.info = originalInfo;
     }
-    assert.equal(lines.some((line) => line.includes('"pathId":"universal_v1_plan"')), false);
+    assert.equal(lines.some((line) =>
+      line.includes('"pathId":"universal_v1_plan"') ||
+      line.includes('"pathId":"universal_v1_express_entry"'),
+    ), false);
   });
 });

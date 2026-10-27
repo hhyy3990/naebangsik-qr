@@ -167,9 +167,38 @@ type UniversalDevDiagnosticErrorCode =
   | "SERVICE_NOT_CONFIGURED"
   | "AUTH_REQUIRED"
   | "INVALID_REQUEST"
+  | "INVALID_JSON"
+  | "BODY_TOO_LARGE"
+  | "REQUEST_REJECTED"
+  | "UNEXPECTED_ERROR"
   | "UNREGISTERED_SCREEN"
   | "INVALID_MODEL"
   | "GENERATION_FAILED";
+
+type UniversalDevDiagnosticState = {
+  requestId: string;
+  setErrorCode: (errorCode: UniversalDevDiagnosticErrorCode) => void;
+};
+
+function universalDevDiagnosticState(response: Response): UniversalDevDiagnosticState | undefined {
+  return response.locals.universalDevDiagnosticState as UniversalDevDiagnosticState | undefined;
+}
+
+function logUniversalDevExpressEntry(
+  requestId: string,
+  response: Response,
+  getErrorCode: () => UniversalDevDiagnosticErrorCode,
+) {
+  response.once("finish", () => {
+    console.info(JSON.stringify({
+      requestId,
+      expressReached: true,
+      pathId: "universal_v1_express_entry",
+      statusCode: response.statusCode,
+      errorCode: getErrorCode(),
+    }));
+  });
+}
 
 function logUniversalDevRequest(
   requestId: string,
@@ -292,8 +321,30 @@ export function createApp(
       .map((origin) => origin.trim())
       .filter(Boolean),
   );
+  const universalDevMockEnabled =
+    process.env.NODE_ENV === "development" &&
+    process.env.UNIVERSAL_LAYOUT_DEV_MOCK_API === "true";
 
   app.disable("x-powered-by");
+  if (universalDevMockEnabled) {
+    app.use((req, res, next) => {
+      if (req.method !== "POST" || req.path !== "/api/dev/universal-layout/plan") {
+        return next();
+      }
+
+      const requestId = randomUUID();
+      let errorCode: UniversalDevDiagnosticErrorCode = "NONE";
+      res.locals.universalDevDiagnosticState = {
+        requestId,
+        setErrorCode: (nextErrorCode: UniversalDevDiagnosticErrorCode) => {
+          errorCode = nextErrorCode;
+        },
+      } satisfies UniversalDevDiagnosticState;
+      logUniversalDevExpressEntry(requestId, res, () => errorCode);
+      return next();
+    });
+  }
+
   app.use((req, res, next) => {
     const origin = req.get("origin");
     if (!origin) return next();
@@ -301,9 +352,11 @@ export function createApp(
     try {
       sameOrigin = new URL(origin).host === req.get("host");
     } catch {
+      universalDevDiagnosticState(res)?.setErrorCode("REQUEST_REJECTED");
       return fail(res, 403, "허용되지 않은 연결 주소입니다.");
     }
     if (!sameOrigin && !allowedOrigins.has(origin)) {
+      universalDevDiagnosticState(res)?.setErrorCode("REQUEST_REJECTED");
       return fail(res, 403, "허용되지 않은 연결 주소입니다.");
     }
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -324,12 +377,10 @@ export function createApp(
 
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
-  const universalDevMockEnabled =
-    process.env.NODE_ENV === "development" &&
-    process.env.UNIVERSAL_LAYOUT_DEV_MOCK_API === "true";
   if (universalDevMockEnabled) {
     app.post("/api/dev/universal-layout/plan", asyncRoute(async (req, res) => {
-      const requestId = randomUUID();
+      const diagnosticState = universalDevDiagnosticState(res);
+      const requestId = diagnosticState?.requestId ?? randomUUID();
       let diagnosticErrorCode: UniversalDevDiagnosticErrorCode = "NONE";
       logUniversalDevRequest(requestId, res, () => diagnosticErrorCode);
       const reject = (
@@ -338,6 +389,7 @@ export function createApp(
         errorCode: Exclude<UniversalDevDiagnosticErrorCode, "NONE">,
       ) => {
         diagnosticErrorCode = errorCode;
+        diagnosticState?.setErrorCode(errorCode);
         return fail(res, status, message);
       };
 
@@ -895,11 +947,14 @@ export function createApp(
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const bodyError = error as { type?: string; status?: number };
     if (bodyError?.type === "entity.parse.failed") {
+      universalDevDiagnosticState(res)?.setErrorCode("INVALID_JSON");
       return fail(res, 400, "요청 형식을 확인해 주세요.");
     }
     if (bodyError?.type === "entity.too.large") {
+      universalDevDiagnosticState(res)?.setErrorCode("BODY_TOO_LARGE");
       return fail(res, 413, "요청이 너무 큽니다.");
     }
+    universalDevDiagnosticState(res)?.setErrorCode("UNEXPECTED_ERROR");
     console.error("API request failed:", error instanceof Error ? error.name : "UnknownError");
     return fail(res, 500, "서버에서 요청을 처리하지 못했습니다.");
   });
