@@ -162,6 +162,31 @@ function normalizePublicAppUrl(value: string): string | null {
 const fail = (res: Response, status: number, error: string) =>
   res.status(status).json({ error });
 
+type UniversalDevDiagnosticErrorCode =
+  | "NONE"
+  | "SERVICE_NOT_CONFIGURED"
+  | "AUTH_REQUIRED"
+  | "INVALID_REQUEST"
+  | "UNREGISTERED_SCREEN"
+  | "INVALID_MODEL"
+  | "GENERATION_FAILED";
+
+function logUniversalDevRequest(
+  requestId: string,
+  response: Response,
+  getErrorCode: () => UniversalDevDiagnosticErrorCode,
+) {
+  response.once("finish", () => {
+    console.info(JSON.stringify({
+      requestId,
+      requestReached: true,
+      pathId: "universal_v1_plan",
+      statusCode: response.statusCode,
+      errorCode: getErrorCode(),
+    }));
+  });
+}
+
 type AiLayoutDiagnosticFields = {
   outcome?: "passed" | "failed" | "started" | "completed" | "rejected";
   statusCode?: number;
@@ -304,9 +329,23 @@ export function createApp(
     process.env.UNIVERSAL_LAYOUT_DEV_MOCK_API === "true";
   if (universalDevMockEnabled) {
     app.post("/api/dev/universal-layout/plan", asyncRoute(async (req, res) => {
+      const requestId = randomUUID();
+      let diagnosticErrorCode: UniversalDevDiagnosticErrorCode = "NONE";
+      logUniversalDevRequest(requestId, res, () => diagnosticErrorCode);
+      const reject = (
+        status: number,
+        message: string,
+        errorCode: Exclude<UniversalDevDiagnosticErrorCode, "NONE">,
+      ) => {
+        diagnosticErrorCode = errorCode;
+        return fail(res, status, message);
+      };
+
       res.setHeader("Cache-Control", "no-store");
       const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
-      if (!expectedToken) return fail(res, 503, "Development Mock API 인증 설정이 없습니다.");
+      if (!expectedToken) {
+        return reject(503, "Development Mock API 인증 설정이 없습니다.", "SERVICE_NOT_CONFIGURED");
+      }
 
       const authorization = req.get("authorization") ?? "";
       const match = /^Bearer ([^\s]+)$/.exec(authorization);
@@ -316,15 +355,19 @@ export function createApp(
       const authorized =
         expectedBuffer.length === providedBuffer.length &&
         timingSafeEqual(expectedBuffer, providedBuffer);
-      if (!authorized) return fail(res, 401, "인증이 필요합니다.");
+      if (!authorized) return reject(401, "인증이 필요합니다.", "AUTH_REQUIRED");
 
       const parsed = universalLayoutDevelopmentRequestSchema.safeParse(req.body);
-      if (!parsed.success) return fail(res, 400, "Universal v1 모델을 확인해 주세요.");
+      if (!parsed.success) {
+        return reject(400, "Universal v1 모델을 확인해 주세요.", "INVALID_REQUEST");
+      }
       const model = parsed.data.model;
       const registered = UNIVERSAL_LAYOUT_MOCK_POLICIES.some((policy) =>
         policy.hostId === model.hostId && policy.screenId === model.screenId,
       );
-      if (!registered) return fail(res, 404, "등록되지 않은 Development Mock 화면입니다.");
+      if (!registered) {
+        return reject(404, "등록되지 않은 Development Mock 화면입니다.", "UNREGISTERED_SCREEN");
+      }
 
       try {
         const plan = await generateUniversalLayoutPlan({
@@ -338,7 +381,11 @@ export function createApp(
           ? error.code
           : "GENERATION_FAILED";
         const status = code === "INVALID_MODEL" ? 400 : 502;
-        return fail(res, status, code);
+        return reject(
+          status,
+          code,
+          code === "INVALID_MODEL" ? "INVALID_MODEL" : "GENERATION_FAILED",
+        );
       }
     }));
   }

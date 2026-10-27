@@ -169,3 +169,108 @@ test("Development Universal API is opt-in, authenticated, host-restricted, and n
     assert.equal(response.status, 404);
   });
 });
+
+test("Development Universal API logs only safe arrival diagnostics for success and failures", async () => {
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+  }, async () => {
+    const app = createApp({} as Pool, undefined, { serviceToken });
+    const originalInfo = console.info;
+    const lines: string[] = [];
+    console.info = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      const model = makeModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY);
+      const success = await request(app)
+        .post(route)
+        .set("Authorization", `Bearer ${serviceToken}`)
+        .send({ model });
+      assert.equal(success.status, 200);
+
+      const authFailure = await request(app)
+        .post(route)
+        .set("Authorization", "Bearer do-not-log-credential")
+        .send({ model });
+      assert.equal(authFailure.status, 401);
+
+      const invalidEnvelope = await request(app)
+        .post(route)
+        .set("Authorization", `Bearer ${serviceToken}`)
+        .send({ model, privateSentinel: "do-not-log-request-body" });
+      assert.equal(invalidEnvelope.status, 400);
+    } finally {
+      console.info = originalInfo;
+    }
+
+    assert.equal(lines.length, 3);
+    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(records.map((record) => record.statusCode), [200, 401, 400]);
+    assert.deepEqual(records.map((record) => record.errorCode), [
+      "NONE",
+      "AUTH_REQUIRED",
+      "INVALID_REQUEST",
+    ]);
+    for (const record of records) {
+      assert.deepEqual(Object.keys(record).sort(), [
+        "errorCode",
+        "pathId",
+        "requestId",
+        "requestReached",
+        "statusCode",
+      ]);
+      assert.match(String(record.requestId), /^[0-9a-f-]{36}$/);
+      assert.equal(record.requestReached, true);
+      assert.equal(record.pathId, "universal_v1_plan");
+    }
+    assert.equal(lines.join("\n").includes("do-not-log-credential"), false);
+    assert.equal(lines.join("\n").includes("do-not-log-request-body"), false);
+  });
+});
+
+test("Universal arrival diagnostics require the enabled Development route and stay inactive in Production", async () => {
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: undefined,
+  }, async () => {
+    const app = createApp({} as Pool, undefined, { serviceToken });
+    const originalInfo = console.info;
+    const lines: string[] = [];
+    console.info = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      const response = await request(app)
+        .post(route)
+        .set("Authorization", `Bearer ${serviceToken}`)
+        .send({ model: makeModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY) });
+      assert.equal(response.status, 404);
+    } finally {
+      console.info = originalInfo;
+    }
+    assert.equal(lines.some((line) => line.includes('"pathId":"universal_v1_plan"')), false);
+  });
+
+  await withEnvironment({
+    NODE_ENV: "production",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+  }, async () => {
+    const app = createApp({} as Pool, undefined, { serviceToken });
+    const originalInfo = console.info;
+    const lines: string[] = [];
+    console.info = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      const response = await request(app)
+        .post(route)
+        .set("Authorization", `Bearer ${serviceToken}`)
+        .send({ model: makeModel(CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY) });
+      assert.equal(response.status, 404);
+    } finally {
+      console.info = originalInfo;
+    }
+    assert.equal(lines.some((line) => line.includes('"pathId":"universal_v1_plan"')), false);
+  });
+});
