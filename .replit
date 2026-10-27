@@ -55,3 +55,4 @@ build = ["npm", "run", "build"]
 [userenv.development]
 UNIVERSAL_LAYOUT_DEV_MOCK_API = "true"
 UNIVERSAL_LAYOUT_DEV_OPENAI_MODEL = "gpt-6-luna"
+UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER = "false"

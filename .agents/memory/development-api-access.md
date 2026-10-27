@@ -8,3 +8,9 @@ Replit External Access Tokens normally use `Authorization: Bearer ...`, while th
 **Why:** External callers must pass both the Replit project gate and the application's service authentication without conflating credentials.
 
 **How to apply:** For an explicitly authorized external Development test, use the Replit-issued protection token only through its documented mechanism and the service token only as the API's Authorization Bearer. Never log or print either credential or a token-bearing URL. Do not attempt this for Production unless separately authorized.
+
+The Development workflow's inline `NODE_ENV=development` assignment does not propagate to separate shell commands. Local scripts that need to assert Development mode must set `NODE_ENV=development` explicitly; the running workflow itself should still be verified independently.
+
+**Why:** A local preflight initially stopped before sending any request because the shell process did not inherit the workflow command's inline environment assignment.
+
+**How to apply:** Check workflow state and environment configuration separately, and set the mode explicitly in any one-off local validation process without printing secret values.
