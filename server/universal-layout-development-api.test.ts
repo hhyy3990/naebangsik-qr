@@ -324,6 +324,27 @@ test("separate Development OpenAI route is opt-in and uses the shared fake provi
     NODE_ENV: "development",
     UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
     UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER: "true",
+    OPENAI_API_KEY: undefined,
+  }, async () => {
+    const app = createApp({} as Pool, undefined, {
+      serviceToken,
+    });
+    const noKey = await request(app)
+      .post("/api/dev/universal-layout/openai-plan")
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(noKey.status, 503);
+
+    const unauthorized = await request(app)
+      .post("/api/dev/universal-layout/openai-plan")
+      .send({ model });
+    assert.equal(unauthorized.status, 401);
+  });
+
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+    UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER: "true",
   }, async () => {
     const app = createApp({} as Pool, undefined, {
       serviceToken,
@@ -342,6 +363,34 @@ test("separate Development OpenAI route is opt-in and uses the shared fake provi
       .send({ model });
     assert.equal(regularMockPlan.status, 200);
     assert.equal(regularMockPlan.body.operations[0].columns, 1);
+  });
+
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+    UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER: "true",
+  }, async () => {
+    const app = createApp({} as Pool, undefined, {
+      serviceToken,
+      universalLayoutOpenAIProvider: {
+        async generate() {
+          throw new Error("private provider failure detail");
+        },
+      },
+    });
+    const aiFailure = await request(app)
+      .post("/api/dev/universal-layout/openai-plan")
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(aiFailure.status, 502);
+    assert.equal(JSON.stringify(aiFailure.body).includes("private provider failure detail"), false);
+
+    const noAutomaticMockFallback = await request(app)
+      .post(route)
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(noAutomaticMockFallback.status, 200);
+    assert.equal(noAutomaticMockFallback.body.operations[0].columns, 1);
   });
 
   await withEnvironment({
