@@ -245,6 +245,19 @@ test("provider failures, malformed JSON, invalid schema, and abort are explicit 
     generateUniversalLayoutPlan({
       model,
       policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+      provider: mockProvider(() => {
+        calls += 1;
+        const error = new Error("provider timed out");
+        error.name = "TimeoutError";
+        throw error;
+      }),
+    }),
+    (error: unknown) => error instanceof UniversalLayoutGenerationError && error.code === "PROVIDER_TIMEOUT",
+  );
+  await assert.rejects(
+    generateUniversalLayoutPlan({
+      model,
+      policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
       provider: mockProvider(() => { calls += 1; return "{bad json"; }),
     }),
     (error: unknown) => error instanceof UniversalLayoutGenerationError && error.code === "INVALID_JSON",
@@ -269,5 +282,139 @@ test("provider failures, malformed JSON, invalid schema, and abort are explicit 
     }),
     (error: unknown) => error instanceof UniversalLayoutGenerationError && error.code === "REQUEST_ABORTED",
   );
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
+});
+
+test("common provider rejects wrong operation, wrong target, wrong hashes, missing fields and stale policy", async () => {
+  const model = makeModel(DEMO_COFFEE_UNIVERSAL_MOCK_POLICY);
+  const rejectAs = async (output: unknown, validationCode: string) => {
+    await assert.rejects(
+      generateUniversalLayoutPlan({
+        model,
+        policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+        provider: mockProvider(() => output),
+      }),
+      (error: unknown) => error instanceof UniversalLayoutGenerationError &&
+        error.code === "PLAN_REJECTED" && error.validationCode === validationCode,
+    );
+  };
+
+  await assert.rejects(
+    generateUniversalLayoutPlan({
+      model,
+      policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+      provider: mockProvider((payload) => ({
+        ...validPlan(payload, 1),
+        operations: [{ type: "setSpacing", targetId: payload.components[0].id, columns: 1 }],
+      })),
+    }),
+    (error: unknown) => error instanceof UniversalLayoutGenerationError &&
+      error.code === "INVALID_STRUCTURED_OUTPUT",
+  );
+  await assert.rejects(
+    generateUniversalLayoutPlan({
+      model,
+      policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+      provider: mockProvider((payload) => ({
+        ...validPlan(payload, 1),
+        schemaVersion: 2,
+      })),
+    }),
+    (error: unknown) => error instanceof UniversalLayoutGenerationError &&
+      error.code === "INVALID_STRUCTURED_OUTPUT",
+  );
+  await rejectAs({
+    ...validPlan({
+      schemaVersion: 1,
+      contractVersion: "universal-layout.v1",
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      accessibility: model.accessibility,
+      components: [{ ...model.components[0], allowedColumns: [1, 2] }],
+    }, 1),
+    structureHash: "a".repeat(64),
+  }, "PLAN_MODEL_MISMATCH");
+  await rejectAs({
+    ...validPlan({
+      schemaVersion: 1,
+      contractVersion: "universal-layout.v1",
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      accessibility: model.accessibility,
+      components: [{ ...model.components[0], allowedColumns: [1, 2] }],
+    }, 1),
+    constraintHash: "b".repeat(64),
+  }, "PLAN_MODEL_MISMATCH");
+  await rejectAs({
+    ...validPlan({
+      schemaVersion: 1,
+      contractVersion: "universal-layout.v1",
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      accessibility: model.accessibility,
+      components: [{ ...model.components[0], allowedColumns: [1, 2] }],
+    }, 1),
+    structureVersion: "menu.v999",
+  }, "PLAN_MODEL_MISMATCH");
+  await rejectAs({
+    ...validPlan({
+      schemaVersion: 1,
+      contractVersion: "universal-layout.v1",
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      accessibility: model.accessibility,
+      components: [{ ...model.components[0], allowedColumns: [1, 2] }],
+    }, 1),
+    operations: [{ type: "setColumns", targetId: "other.screen.component", columns: 1 }],
+  }, "UNSUPPORTED_PLAN_OPERATION");
+  await assert.rejects(
+    generateUniversalLayoutPlan({
+      model,
+      policies: UNIVERSAL_LAYOUT_MOCK_POLICIES,
+      provider: mockProvider((payload) => {
+        const output = validPlan(payload, 1) as Record<string, unknown>;
+        delete output.constraintHash;
+        return output;
+      }),
+    }),
+    (error: unknown) => error instanceof UniversalLayoutGenerationError &&
+      error.code === "INVALID_STRUCTURED_OUTPUT",
+  );
+
+  const mutablePolicy: UniversalLayoutPolicy = {
+    ...DEMO_COFFEE_UNIVERSAL_MOCK_POLICY,
+    components: DEMO_COFFEE_UNIVERSAL_MOCK_POLICY.components.map((component) => ({
+      ...component,
+      allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2] },
+    })),
+  };
+  const staleModel = makeModel(mutablePolicy);
+  await assert.rejects(
+    generateUniversalLayoutPlan({
+      model: staleModel,
+      policies: [mutablePolicy],
+      provider: mockProvider((payload) => {
+        (mutablePolicy.components[0].allowedColumnsByViewport as unknown as Record<string, number[]>).regular = [1];
+        return validPlan(payload, 2);
+      }),
+    }),
+    (error: unknown) => error instanceof UniversalLayoutGenerationError &&
+      error.code === "PLAN_REJECTED" && error.validationCode === "COMPONENT_POLICY_MISMATCH",
+  );
 });

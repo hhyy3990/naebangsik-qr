@@ -279,6 +279,88 @@ test("Development Universal API logs only safe arrival diagnostics for success a
   });
 });
 
+test("separate Development OpenAI route is opt-in and uses the shared fake provider", async () => {
+  const model = makeModel(DEMO_COFFEE_UNIVERSAL_MOCK_POLICY);
+  const fakeProvider = {
+    async generate({ payload }: { payload: {
+      schemaVersion: number;
+      contractVersion: string;
+      hostId: string;
+      screenId: string;
+      structureVersion: string;
+      structureHash: string;
+      constraintHash: string;
+      viewportClass: string;
+      components: Array<{ id: string }>;
+    } }) {
+      return {
+        schemaVersion: payload.schemaVersion,
+        contractVersion: payload.contractVersion,
+        hostId: payload.hostId,
+        screenId: payload.screenId,
+        structureVersion: payload.structureVersion,
+        structureHash: payload.structureHash,
+        constraintHash: payload.constraintHash,
+        viewportClass: payload.viewportClass,
+        operations: [{ type: "setColumns", targetId: payload.components[0].id, columns: 2 }],
+      };
+    },
+  };
+
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+    UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER: undefined,
+  }, async () => {
+    const disabled = createApp({} as Pool, undefined, { serviceToken });
+    const response = await request(disabled)
+      .post("/api/dev/universal-layout/openai-plan")
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(response.status, 404);
+  });
+
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+    UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER: "true",
+  }, async () => {
+    const app = createApp({} as Pool, undefined, {
+      serviceToken,
+      universalLayoutOpenAIProvider: fakeProvider,
+    });
+    const aiPlan = await request(app)
+      .post("/api/dev/universal-layout/openai-plan")
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(aiPlan.status, 200);
+    assert.equal(aiPlan.body.operations[0].columns, 2);
+
+    const regularMockPlan = await request(app)
+      .post(route)
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(regularMockPlan.status, 200);
+    assert.equal(regularMockPlan.body.operations[0].columns, 1);
+  });
+
+  await withEnvironment({
+    NODE_ENV: "production",
+    UNIVERSAL_LAYOUT_DEV_MOCK_API: "true",
+    UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER: "true",
+  }, async () => {
+    const productionApp = createApp({} as Pool, undefined, {
+      serviceToken,
+      universalLayoutOpenAIProvider: fakeProvider,
+    });
+    const response = await request(productionApp)
+      .post("/api/dev/universal-layout/openai-plan")
+      .set("Authorization", `Bearer ${serviceToken}`)
+      .send({ model });
+    assert.equal(response.status, 404);
+  });
+});
+
 test("Universal arrival diagnostics require the enabled Development route and stay inactive in Production", async () => {
   await withEnvironment({
     NODE_ENV: "development",

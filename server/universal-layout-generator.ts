@@ -9,12 +9,13 @@ import {
   type UniversalLayoutPolicy,
 } from "./universal-layout-contract";
 
-export const UNIVERSAL_LAYOUT_SYSTEM_INSTRUCTION = `너는 Universal Layout Contract v1 화면의 열 수 선택 계획만 만든다.
-검증된 모델에 포함된 host, screen, component 식별자와 제약을 그대로 사용한다.
-허용된 component의 setColumns만 반환한다. 열 수는 해당 component의 allowedColumns 중에서만 고른다.
-화면 항목, 순서, 선택 상태, 업무 동작, 결제·발급 동작은 변경하지 않는다.
-HTML, CSS, JavaScript, DOM, 사용자 입력, 상품·가격·주문 데이터, 증명서 내용 또는 임의 속성을 만들거나 반환하지 않는다.
-모델 식별자와 해시를 정확히 그대로 반환하며, 계획이 적합하지 않으면 유효한 허용 계획만 반환한다.`;
+export const UNIVERSAL_LAYOUT_SYSTEM_INSTRUCTION = `너는 Universal Layout Contract v1의 반복 카드 목록(repeated-card-list)에 대한 열 수 선택 계획만 만든다.
+서버가 제공한 검증된 모델과 allowedColumns 안에서만 열 수를 선택한다.
+새 operation을 만들지 말고 setColumns만 반환한다.
+화면 항목, 항목 수, 항목 순서, 식별자, 선택 상태, 업무 동작은 변경하지 않는다.
+최소 터치 영역과 접근성 제약을 보존한다. 확신할 수 없으면 허용된 값 중 보수적인 배치를 선택한다.
+HTML, CSS, JavaScript, DOM 또는 화면 내용을 생성하거나 반환하지 않는다.
+모델 식별자와 해시를 정확히 그대로 반환한다. 서버 검증이 최종 판단이며, 응답을 자동 보정하지 않는다.`;
 
 export type UniversalLayoutJsonSchema = {
   type: "object";
@@ -56,6 +57,7 @@ export interface UniversalLayoutPlanProvider {
 export type UniversalLayoutGenerationErrorCode =
   | "INVALID_MODEL"
   | "PROVIDER_FAILURE"
+  | "PROVIDER_TIMEOUT"
   | "INVALID_JSON"
   | "INVALID_STRUCTURED_OUTPUT"
   | "PLAN_REJECTED"
@@ -180,6 +182,9 @@ export async function generateUniversalLayoutPlan(
   } catch (error) {
     if (input.signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
       throw new UniversalLayoutGenerationError("REQUEST_ABORTED");
+    }
+    if (error instanceof Error && /timeout/i.test(error.name)) {
+      throw new UniversalLayoutGenerationError("PROVIDER_TIMEOUT");
     }
     throw new UniversalLayoutGenerationError("PROVIDER_FAILURE");
   }
