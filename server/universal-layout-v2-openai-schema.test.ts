@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { universalSha256 } from "./universal-layout-contract";
 import { createUniversalLayoutV2Model } from "./universal-layout-contract-v2";
-import { createUniversalLayoutV2PlanJsonSchema } from "./universal-layout-generator-v2";
+import {
+  createUniversalLayoutV2PlanJsonSchema,
+  createUniversalLayoutV2SingleOptionPlanJsonSchema,
+  generateUniversalLayoutV2Plan,
+  UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
+} from "./universal-layout-generator-v2";
 import {
   CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY,
   DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
@@ -113,6 +118,96 @@ test("DemoCoffee and Civil final OpenAI output schemas satisfy strict structured
   const civilItems = (civilSchema.properties.operations as { items: Record<string, unknown> }).items;
   assert.ok(Array.isArray(demoItems.anyOf));
   assert.ok(Array.isArray(civilItems.anyOf));
+});
+
+test("Development pilot output schemas require exactly one registered option operation", () => {
+  const demoSchema = createUniversalLayoutV2SingleOptionPlanJsonSchema(
+    demoModel(),
+    "menu.product-list",
+    "compact-grid",
+  );
+  const civilSchema = createUniversalLayoutV2SingleOptionPlanJsonSchema(
+    civilModel(),
+    "civil.certificate-grid",
+    "reserved-safe-list",
+  );
+  assertOpenAIStrictSchema(demoSchema);
+  assertOpenAIStrictSchema(civilSchema);
+
+  for (const [schema, targetId, optionId] of [
+    [demoSchema, "menu.product-list", "compact-grid"],
+    [civilSchema, "civil.certificate-grid", "reserved-safe-list"],
+  ] as const) {
+    const operations = schema.properties.operations as {
+      minItems: number;
+      maxItems: number;
+      items: {
+        properties: Record<string, { const?: string; enum?: string[] }>;
+      };
+    };
+    assert.equal(operations.minItems, 1);
+    assert.equal(operations.maxItems, 1);
+    assert.equal(operations.items.properties.type.const, "selectLayoutOption");
+    assert.equal(operations.items.properties.targetId.const, targetId);
+    assert.equal(operations.items.properties.groupId.const, "arrangement");
+    assert.deepEqual(operations.items.properties.optionId.enum, [optionId]);
+  }
+});
+
+test("Fake provider plans for both pilots pass the shared v2 validator with the constrained schema", async () => {
+  const scenarios = [
+    {
+      model: demoModel(),
+      policy: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
+      targetId: "menu.product-list",
+      optionId: "compact-grid",
+    },
+    {
+      model: civilModel(),
+      policy: CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY,
+      targetId: "civil.certificate-grid",
+      optionId: "reserved-safe-list",
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const responseSchema = createUniversalLayoutV2SingleOptionPlanJsonSchema(
+      scenario.model,
+      scenario.targetId,
+      scenario.optionId,
+    );
+    const plan = await generateUniversalLayoutV2Plan({
+      model: scenario.model,
+      policies: [scenario.policy],
+      responseSchema,
+      systemInstruction: UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
+      provider: {
+        async generate(input) {
+          assert.deepEqual(input.responseSchema, responseSchema);
+          return {
+            schemaVersion: scenario.model.schemaVersion,
+            contractVersion: scenario.model.contractVersion,
+            hostId: scenario.model.hostId,
+            screenId: scenario.model.screenId,
+            structureVersion: scenario.model.structureVersion,
+            structureHash: scenario.model.structureHash,
+            constraintHash: scenario.model.constraintHash,
+            viewportClass: scenario.model.viewportClass,
+            operations: [{
+              type: "selectLayoutOption",
+              targetId: scenario.targetId,
+              groupId: "arrangement",
+              optionId: scenario.optionId,
+            }],
+          };
+        },
+      },
+    });
+    assert.equal(plan.operations.length, 1);
+    assert.equal(plan.operations[0].type, "selectLayoutOption");
+    assert.equal(plan.operations[0].targetId, scenario.targetId);
+    assert.equal(plan.operations[0].optionId, scenario.optionId);
+  }
 });
 
 test("strict schema regression checker rejects oneOf, optional fields, and open objects", () => {

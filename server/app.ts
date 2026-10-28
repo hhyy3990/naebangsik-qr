@@ -41,7 +41,9 @@ import { UNIVERSAL_LAYOUT_MOCK_POLICIES } from "./universal-layout-mock-policies
 import { universalLayoutDevelopmentMockProvider, universalLayoutDevelopmentRequestSchema } from "./universal-layout-development-mock";
 import { createUniversalLayoutOpenAIProvider } from "./universal-layout-openai-provider";
 import {
+  createUniversalLayoutV2SingleOptionPlanJsonSchema,
   generateUniversalLayoutV2Plan,
+  UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
   UniversalLayoutV2GenerationError,
   type UniversalLayoutV2PlanProvider,
 } from "./universal-layout-generator-v2";
@@ -676,6 +678,12 @@ export function createApp(
               model,
               policies: [registration.policy],
               provider,
+              responseSchema: createUniversalLayoutV2SingleOptionPlanJsonSchema(
+                model,
+                registration.componentId,
+                registration.optionIds[0],
+              ),
+              systemInstruction: UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
             });
             return validateDevelopmentUniversalLayoutV2Plan(plan, model);
           },

@@ -8,7 +8,10 @@ import {
   createUniversalLayoutV2Model,
   type UniversalLayoutV2Accessibility,
 } from "./universal-layout-contract-v2";
-import { createUniversalLayoutV2PlanJsonSchema } from "./universal-layout-generator-v2";
+import {
+  createUniversalLayoutV2SingleOptionPlanJsonSchema,
+  UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
+} from "./universal-layout-generator-v2";
 import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator-v2";
 import { UniversalLayoutV2OpenAIRequestGuard } from "./universal-layout-v2-openai-request-guard";
 import {
@@ -164,7 +167,19 @@ test("v2 OpenAI adapter's strict JSON response passes the shared validator in-pr
     } | undefined;
     assert.equal(text?.format?.type, "json_schema");
     assert.equal(text?.format?.strict, true);
-    assert.deepEqual(text?.format?.schema, createUniversalLayoutV2PlanJsonSchema(model));
+    const outputSchema = text?.format?.schema as {
+      properties?: { operations?: { minItems?: number; maxItems?: number; items?: unknown } };
+    };
+    assert.equal(outputSchema.properties?.operations?.minItems, 1);
+    assert.equal(outputSchema.properties?.operations?.maxItems, 1);
+    assert.deepEqual(
+      outputSchema,
+      createUniversalLayoutV2SingleOptionPlanJsonSchema(model, "menu.product-list", "compact-grid"),
+    );
+    const input = captured?.input as Array<{ role?: string; content?: string }> | undefined;
+    assert.ok(input?.some((item) =>
+      item.role === "system" && item.content === UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
+    ));
   });
 });
 
