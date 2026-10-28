@@ -4,7 +4,7 @@
 
 This guide and `universal-v2-contract-export.ts` expose the central v2 model, plan schema, hash functions, and validators. The exporter re-exports the existing implementation; it does not define another contract.
 
-**Important:** the central project does not currently register a production DemoCoffee v2 policy or expose a v2 endpoint/provider. `server/universal-v2-conformance-fixtures.ts` is a test-only policy used to validate the example fixture. It is not an approval or production registration for DemoCoffee. The model/plan example demonstrates wire shape and validator behavior only.
+**Important:** the central project has a Development-only host policy registry, but it does not expose a v2 endpoint/provider or make Production registrations. The sample model/plan remains a synthetic conformance fixture; supplied host snapshots are validated separately and `hostPolicyVerified` remains false. See `server/UNIVERSAL_V2_DEVELOPMENT_REGISTRY.md` for the distinction between those policies and host evidence.
 
 The contract versions are:
 
@@ -197,7 +197,7 @@ It is rejected because the option is not policy-resolved and `css` is an additio
 
 The fixture includes `structureHash` `51616a81efd7fe21b9d215a697532924cacd3e37aff2c250af43d0944d910182` and `constraintHash` `6aabe7d629c36395e1cb12ec3b45085f077e8d8c445cdfbe676cc8fe0eed0d5e`. The fixture test recomputes both with the exported central functions and validates the full plan.
 
-**Do not interpret this test fixture as a production DemoCoffee registration.** The current central v2 implementation has no production host registry, v2 endpoint, or host-side preset application. A real integration needs an approved policy and matching host implementation first.
+**Do not interpret this test fixture as a production DemoCoffee registration.** The central v2 implementation has no Production host registration, v2 endpoint, or host-side preset application. A real integration needs an approved policy and matching host implementation first.
 
 ## v1 / v2 separation
 
@@ -219,4 +219,4 @@ For executable validation outside this repository, also copy the exporter depend
 4. `server/universal-layout-contract-v2.ts`
 5. `server/universal-layout-contract.ts`
 
-Install Zod 4 in the receiving project. `server/universal-v2-conformance-fixtures.ts` is only needed to reproduce the central test fixture; it is not a production policy to install or register.
+Install Zod 4 in the receiving project. `server/universal-v2-conformance-fixtures.ts` contains conformance fixtures and Development policies reconstructed from submitted host reports; it is not a Production policy registry to install or register.

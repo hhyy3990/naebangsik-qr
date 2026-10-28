@@ -8,18 +8,22 @@ import {
   type UniversalLayoutV2Policy,
 } from "./universal-layout-contract-v2";
 import {
+  CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY,
   CIVIL_UNIVERSAL_V2_CONFORMANCE_POLICY,
+  DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
   DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY,
 } from "./universal-v2-conformance-fixtures";
 
 export type DevelopmentUniversalLayoutV2Registration = {
-  readonly hostLabel: "DemoCoffee" | "Civil";
+  readonly hostLabel: "DemoCoffee" | "Civil" | "Civil mock fixture";
   readonly hostId: string;
   readonly screenId: string;
   readonly structureVersion: string;
   readonly componentId: string;
   readonly optionIds: readonly string[];
-  readonly policyEvidence: "central-conformance-fixture-only";
+  readonly policyEvidence:
+    | "central-conformance-fixture-only"
+    | "host-development-snapshot-validated";
   readonly hostPolicyVerified: false;
   readonly policy: UniversalLayoutV2Policy;
 };
@@ -27,17 +31,28 @@ export type DevelopmentUniversalLayoutV2Registration = {
 const DEVELOPMENT_REGISTRY: readonly DevelopmentUniversalLayoutV2Registration[] = [
   {
     hostLabel: "DemoCoffee",
-    hostId: DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY.hostId,
-    screenId: DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY.screenId,
-    structureVersion: DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY.structureVersion,
-    componentId: DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY.components[0].id,
+    hostId: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.hostId,
+    screenId: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.screenId,
+    structureVersion: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.structureVersion,
+    componentId: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.components[0].id,
     optionIds: ["compact-grid"],
-    policyEvidence: "central-conformance-fixture-only",
+    policyEvidence: "host-development-snapshot-validated",
     hostPolicyVerified: false,
-    policy: DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY,
+    policy: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
   },
   {
     hostLabel: "Civil",
+    hostId: CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY.hostId,
+    screenId: CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY.screenId,
+    structureVersion: CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY.structureVersion,
+    componentId: CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY.components[0].id,
+    optionIds: ["reserved-safe-list"],
+    policyEvidence: "host-development-snapshot-validated",
+    hostPolicyVerified: false,
+    policy: CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY,
+  },
+  {
+    hostLabel: "Civil mock fixture",
     hostId: CIVIL_UNIVERSAL_V2_CONFORMANCE_POLICY.hostId,
     screenId: CIVIL_UNIVERSAL_V2_CONFORMANCE_POLICY.screenId,
     structureVersion: CIVIL_UNIVERSAL_V2_CONFORMANCE_POLICY.structureVersion,

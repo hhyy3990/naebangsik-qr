@@ -8,42 +8,44 @@ Every lookup and validation entry point checks `NODE_ENV === "development"`. Cal
 
 ## Entries currently available to Development code
 
-| Label | Central fixture host ID | Screen | Central fixture structure version | Component | Registry-allowed option |
+| Label | Development host ID | Screen | Structure version | Component | Registry-allowed option |
 |---|---|---|---|---|---|
 | DemoCoffee | `democoffee` | `cafe.menu` | `menu.v2` | `menu.product-list` | `compact-grid` |
-| Civil | `civil-kiosk-mock` | `civil.main-menu` | `civil-main-mock.v1` | `civil.certificate-grid` | `reserved-safe-list` |
+| Civil Development | `civil-kiosk-development-test` | `civil.main-menu` | `civil-main-menu.v2-test` | `civil.certificate-grid` | `reserved-safe-list` |
+| Civil mock fixture | `civil-kiosk-mock` | `civil.main-menu` | `civil-main-mock.v1` | `civil.certificate-grid` | `reserved-safe-list` |
 
-Both entries are marked `central-conformance-fixture-only` and `hostPolicyVerified: false`. The Civil ID and version above are explicitly mock values from the central test policy, not confirmed production host identifiers.
+All entries retain `hostPolicyVerified: false`. The DemoCoffee and Civil Development rows are reconstructed from the supplied Development compatibility reports and marked `host-development-snapshot-validated`; the Civil mock row remains `central-conformance-fixture-only`. None is a Production registration.
 
 ## What is and is not confirmed
 
-Confirmed from central code:
+Confirmed from the supplied host reports and reproduced with the central v2 implementation:
 
-- DemoCoffee conformance fixture declares `democoffee / cafe.menu / menu.v2`, component `menu.product-list`, and the `arrangement` options `compact-grid` and `large-text-list`. `compact-grid` is allowed only for standard text scale. The Development registry allowlist for this registration contains only `compact-grid`.
-- Civil conformance policy declares `civil-kiosk-mock / civil.main-menu / civil-main-mock.v1`, component `civil.certificate-grid`, and `reserved-safe-list` requiring `reserved-bottom-controls`. That capability limits this component to one column. The option policy also declares `compact-grid` (excluded when the capability is active) and `large-text-list`.
-- The central validator recomputes model policy, structure hash, constraint hash, capabilities, accessibility-filtered options, and plan validity against the supplied central policy.
+- DemoCoffee's host model reports `democoffee / cafe.menu / menu.v2`, component `menu.product-list`, and only `arrangement/compact-grid`. The option requires standard text and standard button scale. For the supplied five-item ordered structure, the central validator reproduces the reported `structureHash`; the regular standard `constraintHash` also matches. Compact, regular, and wide standard constraint hashes all reproduce.
+- The central Development policy now uses that host-reported option filter. At large/extra-large text or large button scale, `compact-grid` is filtered out and the host's one-column policy remains.
+- Civil's host model reports `civil-kiosk-development-test / civil.main-menu / civil-main-menu.v2-test`, component `civil.certificate-grid`, and `arrangement/reserved-safe-list`. Recreating the reported 18-item ordered-ID hash, `wide` viewport, standard accessibility, and `reserved-bottom-controls` reproduces both reported hashes and validates the plan.
+- Civil `reserved-safe-list` requires `reserved-bottom-controls`; the capability caps columns at one. The supplied DOM report says the visible in-flow footer and fixed QR dock both reserve bottom space, so the host includes the capability. The central validator sees the asserted capability; it does not independently inspect that DOM.
+- The common v2 validator reconstructs the model from the registered policy and checks hashes, capabilities, accessibility-filtered options, and plan validity.
 
-Not confirmed from the host projects:
+Still not independently confirmed:
 
-- Whether either host sends exactly the fixture's host ID, screen ID, structure version, component IDs/roles/order, item counts, or hashes.
-- Whether the hosts' registered option IDs and `arrangement` group definitions exactly match these fixture definitions.
-- Whether DemoCoffee can assert that no persistent bottom controls or QR dock reserve usable space. Its central fixture currently declares no allowed capabilities.
-- How Civil detects active footer/QR-dock occupancy and when it asserts `reserved-bottom-controls`. The central capability is only a positive reservation signal; it is not inferred from a preference or from missing capability data.
-- Whether the two hosts' runtime accessibility state and option availability match the central fixtures.
+- Direct access to the host source/runtime was not part of this task; the compatibility materials are the evidence for the observed Development snapshots.
+- Other DemoCoffee item counts, ordering, accessibility combinations, viewport states, and runtime transitions were not supplied. Its `structureHash` is dynamic and must be recomputed for each current structure; the 12-item synthetic fixture hash is not used for the host.
+- Civil profile variants, viewport changes, item-order changes, and capability transitions beyond the supplied live snapshot were not independently exercised.
+- `validatorSourceSha256` in the DemoCoffee report does not identify a file set or digest procedure. The local central source files' individual SHA-256 values therefore cannot be compared to it directly; behavioral hashes and plans were tested instead.
 
-The registry does not pin either hash or infer a host match from a display label. Hashes are generated from each current model and checked by the common validator. Until the hosts provide their exact model/policy inputs and runtime capability evidence, these entries are conformance-only and must not be treated as confirmed host registrations.
+The registry does not pin model hashes or infer a host match from a display label. Hashes are generated from each current model and checked by the common validator. `hostPolicyVerified` remains false because the submitted reports establish specific Development snapshot compatibility, not broad or Production host verification.
 
 ## Safety behavior
 
-- Registry resolution requires an exact `hostId` + `screenId` pair; the Civil test entry deliberately retains `civil-kiosk-mock`, not an assumed production ID.
+- Registry resolution requires an exact `hostId` + `screenId` pair. The new Civil Development row uses the report's `civil-kiosk-development-test`; the old `civil-kiosk-mock` row remains unchanged for central tests.
 - Only the registered component and listed option ID are eligible through this Development registry.
 - The common validator still rejects stale or altered structure/constraint hashes, policy mismatches, inaccessible or capability-filtered choices, malformed plans, and conflicting operations.
-- DemoCoffee `compact-grid` under large text is rejected because the option is absent from that accessibility-filtered model.
-- Civil `reserved-safe-list` without `reserved-bottom-controls` is rejected. With the capability, the policy also limits columns to one and excludes `compact-grid`.
+- DemoCoffee `compact-grid` under large text or large buttons is rejected because the option is absent from that accessibility-filtered model.
+- Civil `reserved-safe-list` without `reserved-bottom-controls` is rejected. With the capability, the policy limits columns to one and does not offer `compact-grid`.
 - The registry cannot detect a real fixed footer or QR dock by itself. Hosts must positively detect reserved screen space and send the capability; unknown state must not be interpreted as clear space.
 - Registry lookups return copied policy data so callers cannot mutate the private allowlist by modifying a returned registration.
 - v1 validators, schemas, routes, and hashes are untouched and remain independent.
 
 ## How to enable a real host registration later
 
-Before treating either fixture as the host's policy, compare a host-provided v2 model and policy declaration, including structure version, component manifest/order, allowed operations, option definitions, accessibility behavior, capability detection, and freshly computed hashes. Update the Development conformance entry only after that evidence matches. Keep Production registration and any AI/provider route as separate, explicitly approved work.
+Before setting `hostPolicyVerified` true or considering Production registration, verify the complete host source/runtime contract across relevant structures, accessibility states, viewports, capability transitions, and freshly computed hashes. Keep any Production registration and AI/provider route as separate, explicitly approved work.

@@ -94,6 +94,13 @@ test("Development registry scopes conformance policies and reuses the central v2
         },
         {
           hostLabel: "Civil",
+          hostId: "civil-kiosk-development-test",
+          screenId: "civil.main-menu",
+          componentId: "civil.certificate-grid",
+          optionIds: ["reserved-safe-list"],
+        },
+        {
+          hostLabel: "Civil mock fixture",
           hostId: "civil-kiosk-mock",
           screenId: "civil.main-menu",
           componentId: "civil.certificate-grid",
@@ -102,7 +109,6 @@ test("Development registry scopes conformance policies and reuses the central v2
       ],
     );
     assert.ok(registrations.every((entry) =>
-      entry.policyEvidence === "central-conformance-fixture-only" &&
       entry.hostPolicyVerified === false,
     ));
 
@@ -123,11 +129,11 @@ test("Development registry scopes conformance policies and reuses the central v2
     );
 
     const civilRegistration = resolveDevelopmentUniversalLayoutV2Registration(
-      "civil-kiosk-mock",
+      "civil-kiosk-development-test",
       "civil.main-menu",
     );
     const civilModel = buildModel(
-      "civil-kiosk-mock",
+      "civil-kiosk-development-test",
       "civil.main-menu",
       standardAccessibility,
       ["reserved-bottom-controls"],
@@ -176,11 +182,27 @@ test("Development registry scopes conformance policies and reuses the central v2
       selectPlan(largeTextModel, demoRegistration.componentId, "compact-grid"),
       largeTextModel,
     ));
+    const largeButtonModel = buildModel("democoffee", "cafe.menu", {
+      ...standardAccessibility,
+      buttonScale: "large",
+    });
+    assert.throws(() => validateDevelopmentUniversalLayoutV2Plan(
+      selectPlan(largeButtonModel, demoRegistration.componentId, "compact-grid"),
+      largeButtonModel,
+    ));
 
     const noFooterCapabilityModel = buildModel("civil-kiosk-mock", "civil.main-menu");
     assert.throws(() => validateDevelopmentUniversalLayoutV2Plan(
       selectPlan(noFooterCapabilityModel, civilRegistration.componentId, "reserved-safe-list"),
       noFooterCapabilityModel,
+    ));
+    const unassertedActualCivil = buildModel(
+      "civil-kiosk-development-test",
+      "civil.main-menu",
+    );
+    assert.throws(() => validateDevelopmentUniversalLayoutV2Plan(
+      selectPlan(unassertedActualCivil, civilRegistration.componentId, "reserved-safe-list"),
+      unassertedActualCivil,
     ));
     assert.throws(() => validateDevelopmentUniversalLayoutV2Plan(
       selectPlan(civilModel, civilRegistration.componentId, "compact-grid"),
@@ -208,4 +230,80 @@ test("Development registry is inaccessible when NODE_ENV is not development", ()
       );
     });
   }
+});
+
+test("host-supplied DemoCoffee and Civil snapshots reproduce central hashes and validate", () => {
+  withNodeEnv("development", () => {
+    const demo = resolveDevelopmentUniversalLayoutV2Registration("democoffee", "cafe.menu");
+    const demoOrderHash = "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a";
+    const demoExpectedConstraints = {
+      compact: "2f008c8481d1fbf7b91886a0ed2a00dc5720a1cd2ba0eae83a27706ebfeb8747",
+      regular: "6aabe7d629c36395e1cb12ec3b45085f077e8d8c445cdfbe676cc8fe0eed0d5e",
+      wide: "52888ec8f0fdd8b30431ecd4281d1ecbcfa581fab3681c35b60b09bd6aafa456",
+    } as const;
+    let regularDemoModel: ReturnType<typeof createUniversalLayoutV2Model> | undefined;
+
+    for (const viewportClass of ["compact", "regular", "wide"] as const) {
+      const model = createUniversalLayoutV2Model(demo.policy, {
+        viewportClass,
+        accessibility: standardAccessibility,
+        layoutCapabilities: [],
+        componentState: [{
+          id: demo.componentId,
+          itemCount: 5,
+          itemOrderHash: demoOrderHash,
+        }],
+      });
+      assert.equal(
+        model.structureHash,
+        "c4e004d4df6fd7f4b0084b0b83569667239cd81284519d46108ad5921dd5cc4e",
+      );
+      assert.equal(model.constraintHash, demoExpectedConstraints[viewportClass]);
+      assert.deepEqual(model.components[0].optionGroups, [{
+        id: "arrangement",
+        optionIds: ["compact-grid"],
+      }]);
+      assert.doesNotThrow(() => validateDevelopmentUniversalLayoutV2Model(model));
+      if (viewportClass === "regular") regularDemoModel = model;
+    }
+    assert.ok(regularDemoModel);
+    assert.doesNotThrow(() => validateDevelopmentUniversalLayoutV2Plan(
+      selectPlan(regularDemoModel!, demo.componentId, "compact-grid"),
+      regularDemoModel,
+    ));
+
+    const civil = resolveDevelopmentUniversalLayoutV2Registration(
+      "civil-kiosk-development-test",
+      "civil.main-menu",
+    );
+    const orderedItemIds = Array.from(
+      { length: 18 },
+      (_, index) => `civil.certificate.${String(index + 1).padStart(2, "0")}`,
+    );
+    const civilModel = createUniversalLayoutV2Model(civil.policy, {
+      viewportClass: "wide",
+      accessibility: standardAccessibility,
+      layoutCapabilities: ["reserved-bottom-controls"],
+      componentState: [{
+        id: civil.componentId,
+        itemCount: 18,
+        itemOrderHash: universalSha256({ orderedItemIds }),
+      }],
+    });
+    assert.equal(
+      civilModel.structureHash,
+      "5ee50fd98eb1ba357232fbc21a39c78b1721925491635b9943a7027cab4eed0b",
+    );
+    assert.equal(
+      civilModel.constraintHash,
+      "285382bce15365551f61890fc36ae5e66f8d225bd8592e4385197e44aebb1c69",
+    );
+    assert.deepEqual(civilModel.components[0].allowedColumns, [1]);
+    assert.deepEqual(civilModel.components[0].optionGroups, [{
+      id: "arrangement",
+      optionIds: ["reserved-safe-list"],
+    }]);
+    const civilPlan = selectPlan(civilModel, civil.componentId, "reserved-safe-list");
+    assert.doesNotThrow(() => validateDevelopmentUniversalLayoutV2Plan(civilPlan, civilModel));
+  });
 });

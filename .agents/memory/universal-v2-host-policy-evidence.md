@@ -3,8 +3,10 @@ name: Universal v2 host policy evidence
 description: Distinguish central conformance fixtures from host-confirmed policy registrations.
 ---
 
-DemoCoffee and Civil Universal v2 policies in the central Development registry are conformance fixtures, not verified host registrations. The Civil fixture uses mock identifiers (`civil-kiosk-mock`, `civil-main-mock.v1`). Do not treat either host's structure version, model hashes, component manifest, option declarations, accessibility state, or reserved-bottom-controls detection as matching the fixture without host evidence.
+Submitted Development compatibility reports now provide snapshots whose DemoCoffee and Civil hashes and plans reproduce with the central v2 validator. The DemoCoffee report uses the real five-item structure rather than the synthetic fixture; Civil's reported ID is `civil-kiosk-development-test`, distinct from the preserved central mock ID `civil-kiosk-mock`.
 
-**Why:** the user stated that exact host model/hash/structureVersion/option-definition compatibility has not been confirmed and must not be assumed.
+These reports establish only the supplied Development states, not complete host compatibility. Keep `hostPolicyVerified` false until the host source/runtime and relevant viewport, accessibility, item-order, and capability transitions are independently checked. Civil's mock ID/version remain test-only.
 
-**How to apply:** keep entries Development-only and explicitly unverified. Compare host-provided model and policy data, recompute both hashes, and confirm runtime footer/QR-dock capability detection before promoting a host registration.
+**Why:** the user supplied observed snapshots and required separating verified fields from unresolved policy scope; one matching snapshot is not sufficient to approve a full host registration.
+
+**How to apply:** keep entries Development-only and explicitly unverified. Preserve the legacy mock row, recompute hashes for each host-provided model, and confirm runtime footer/QR-dock detection and profile transitions before promoting a host registration.
