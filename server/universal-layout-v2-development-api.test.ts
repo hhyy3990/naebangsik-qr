@@ -72,6 +72,30 @@ async function withEnvironment<T>(
   }
 }
 
+async function captureInfo<T>(run: () => Promise<T>): Promise<{ result: T; lines: string[] }> {
+  const previousInfo = console.info;
+  const lines: string[] = [];
+  console.info = (...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  };
+  try {
+    return { result: await run(), lines };
+  } finally {
+    console.info = previousInfo;
+  }
+}
+
+function parseV2DiagnosticEvents(lines: string[]) {
+  return lines
+    .map((line) => JSON.parse(line) as {
+      event: string;
+      requestId: string;
+      outcome: string;
+      statusCode?: number;
+    })
+    .filter((entry) => entry.event.startsWith("universal_v2_fake_"));
+}
+
 test("v2 Development Fake API is opt-in, bearer-authenticated, and returns validated host options", async () => {
   const demo = makeDemoModel();
   const civil = makeCivilModel();
@@ -116,6 +140,107 @@ test("v2 Development Fake API is opt-in, bearer-authenticated, and returns valid
         groupId: "arrangement",
         optionId: expectedOption,
       }]);
+    }
+  });
+});
+
+test("v2 Development diagnostics correlate safe request stages without logging sensitive data", async () => {
+  const model = makeDemoModel();
+
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_V2_FAKE_API: "true",
+  }, async () => {
+    const app = createApp({} as Pool, undefined, { serviceToken: token });
+    const success = await captureInfo(() => request(app)
+      .post(`${route}?private-query=must-not-be-logged`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ model }));
+    assert.equal(success.result.status, 200);
+
+    const successEvents = parseV2DiagnosticEvents(success.lines);
+    assert.deepEqual(successEvents.map(({ event }) => event), [
+      "universal_v2_fake_request_entered",
+      "universal_v2_fake_authentication",
+      "universal_v2_fake_model_schema_validation",
+      "universal_v2_fake_registry_validation",
+      "universal_v2_fake_plan_validation",
+      "universal_v2_fake_response",
+    ]);
+    assert.equal(new Set(successEvents.map(({ requestId }) => requestId)).size, 1);
+    assert.match(successEvents[0].requestId, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(successEvents.map(({ outcome }) => outcome), [
+      "reached",
+      "passed",
+      "passed",
+      "passed",
+      "passed",
+      "completed",
+    ]);
+    assert.equal(successEvents.at(-1)?.statusCode, 200);
+
+    const unauthorized = await captureInfo(() => request(app).post(route).send({ model }));
+    assert.equal(unauthorized.result.status, 401);
+    assert.deepEqual(
+      parseV2DiagnosticEvents(unauthorized.lines).map(({ event, outcome }) => [event, outcome]),
+      [
+        ["universal_v2_fake_request_entered", "reached"],
+        ["universal_v2_fake_authentication", "failed"],
+        ["universal_v2_fake_response", "completed"],
+      ],
+    );
+    assert.equal(parseV2DiagnosticEvents(unauthorized.lines).at(-1)?.statusCode, 401);
+
+    const invalidModel = await captureInfo(() => request(app)
+      .post(route)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ model: { ...model, structureHash: "invalid-hash" } }));
+    assert.equal(invalidModel.result.status, 400);
+    assert.deepEqual(
+      parseV2DiagnosticEvents(invalidModel.lines).map(({ event, outcome }) => [event, outcome]),
+      [
+        ["universal_v2_fake_request_entered", "reached"],
+        ["universal_v2_fake_authentication", "passed"],
+        ["universal_v2_fake_model_schema_validation", "failed"],
+        ["universal_v2_fake_response", "completed"],
+      ],
+    );
+
+    const unregisteredModel = { ...model, hostId: "unknown-host" };
+    const registryRejected = await captureInfo(() => request(app)
+      .post(route)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ model: unregisteredModel }));
+    assert.equal(registryRejected.result.status, 404);
+    assert.deepEqual(
+      parseV2DiagnosticEvents(registryRejected.lines).map(({ event, outcome }) => [event, outcome]),
+      [
+        ["universal_v2_fake_request_entered", "reached"],
+        ["universal_v2_fake_authentication", "passed"],
+        ["universal_v2_fake_model_schema_validation", "passed"],
+        ["universal_v2_fake_registry_validation", "failed"],
+        ["universal_v2_fake_response", "completed"],
+      ],
+    );
+
+    const serializedLogs = success.lines.join("\n");
+    for (const sensitiveValue of [
+      token,
+      "private-query=must-not-be-logged",
+      model.hostId,
+      model.structureHash,
+      "compact-grid",
+      JSON.stringify(model),
+    ]) {
+      assert.equal(serializedLogs.includes(sensitiveValue), false);
+    }
+    for (const entry of successEvents) {
+      assert.deepEqual(Object.keys(entry).sort(), [
+        "event",
+        "outcome",
+        "requestId",
+        ...(entry.statusCode === undefined ? [] : ["statusCode"]),
+      ].sort());
     }
   });
 });
@@ -193,8 +318,10 @@ test("v2 Development Fake API route is not registered in Production", async () =
     NODE_ENV: "production",
     UNIVERSAL_LAYOUT_DEV_V2_FAKE_API: "true",
   }, async () => {
-    const response = await request(createApp({} as Pool, undefined, { serviceToken: token }))
-      .post(route).set("Authorization", `Bearer ${token}`).send({ model: makeDemoModel() });
-    assert.equal(response.status, 404);
+    const app = createApp({} as Pool, undefined, { serviceToken: token });
+    const captured = await captureInfo(() => request(app)
+      .post(route).set("Authorization", `Bearer ${token}`).send({ model: makeDemoModel() }));
+    assert.equal(captured.result.status, 404);
+    assert.deepEqual(parseV2DiagnosticEvents(captured.lines), []);
   });
 });

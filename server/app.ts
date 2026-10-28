@@ -180,6 +180,33 @@ function normalizePublicAppUrl(value: string): string | null {
 const fail = (res: Response, status: number, error: string) =>
   res.status(status).json({ error });
 
+type UniversalV2FakeDiagnosticStage =
+  | "request_entered"
+  | "authentication"
+  | "model_schema_validation"
+  | "registry_validation"
+  | "plan_validation"
+  | "response";
+
+function logUniversalV2FakeDiagnostic(
+  requestId: string,
+  stage: UniversalV2FakeDiagnosticStage,
+  outcome: "reached" | "passed" | "failed" | "completed",
+  statusCode?: number,
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  try {
+    console.info(JSON.stringify({
+      event: `universal_v2_fake_${stage}`,
+      requestId,
+      outcome,
+      ...(statusCode === undefined ? {} : { statusCode }),
+    }));
+  } catch {
+    // Diagnostics must never change request processing.
+  }
+}
+
 type UniversalDevDiagnosticErrorCode =
   | "NONE"
   | "SERVICE_NOT_CONFIGURED"
@@ -514,9 +541,23 @@ export function createApp(
 
   if (universalDevV2FakeEnabled) {
     app.post("/api/dev/universal-layout/v2/fake-plan", asyncRoute(async (req, res) => {
+      const requestId = randomUUID();
+      const log = (
+        stage: UniversalV2FakeDiagnosticStage,
+        outcome: "reached" | "passed" | "failed" | "completed",
+        statusCode?: number,
+      ) => logUniversalV2FakeDiagnostic(requestId, stage, outcome, statusCode);
+      const respondWithError = (status: number, error: string) => {
+        log("response", "completed", status);
+        return fail(res, status, error);
+      };
+      log("request_entered", "reached");
       res.setHeader("Cache-Control", "no-store");
       const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
-      if (!expectedToken) return fail(res, 503, "SERVICE_NOT_CONFIGURED");
+      if (!expectedToken) {
+        log("authentication", "failed");
+        return respondWithError(503, "SERVICE_NOT_CONFIGURED");
+      }
 
       const authorization = req.get("authorization") ?? "";
       const match = /^Bearer ([^\s]+)$/.exec(authorization);
@@ -524,38 +565,61 @@ export function createApp(
       const providedBuffer = Buffer.from(match?.[1] ?? "");
       const authorized = expectedBuffer.length === providedBuffer.length &&
         timingSafeEqual(expectedBuffer, providedBuffer);
-      if (!authorized) return fail(res, 401, "AUTH_REQUIRED");
+      log("authentication", authorized ? "passed" : "failed");
+      if (!authorized) return respondWithError(401, "AUTH_REQUIRED");
 
       const parsed = z.object({ model: universalLayoutV2ModelSchema }).strict().safeParse(req.body);
-      if (!parsed.success) return fail(res, 400, "INVALID_REQUEST");
+      log("model_schema_validation", parsed.success ? "passed" : "failed");
+      if (!parsed.success) return respondWithError(400, "INVALID_REQUEST");
+
+      let model: ReturnType<typeof validateDevelopmentUniversalLayoutV2Model>;
+      let registration: ReturnType<typeof resolveDevelopmentUniversalLayoutV2Registration>;
+      try {
+        registration = resolveDevelopmentUniversalLayoutV2Registration(
+          parsed.data.model.hostId,
+          parsed.data.model.screenId,
+        );
+        model = validateDevelopmentUniversalLayoutV2Model(parsed.data.model);
+        log("registry_validation", "passed");
+      } catch (error) {
+        log("registry_validation", "failed");
+        if (error instanceof DevelopmentUniversalLayoutV2RegistryError) {
+          const status = error.code === "UNREGISTERED_HOST_SCREEN" ||
+            error.code === "UNREGISTERED_STRUCTURE_VERSION" ? 404 : 400;
+          return respondWithError(status, error.code);
+        }
+        if (error instanceof UniversalLayoutV2ValidationError) {
+          return respondWithError(400, error.code);
+        }
+        return respondWithError(400, "INVALID_MODEL");
+      }
 
       try {
-        const model = validateDevelopmentUniversalLayoutV2Model(parsed.data.model);
-        const registration = resolveDevelopmentUniversalLayoutV2Registration(
-          model.hostId,
-          model.screenId,
-        );
         const plan = await generateUniversalLayoutV2Plan({
           model,
           policies: [registration.policy],
           provider: layoutOptions.universalLayoutV2FakeProvider ??
             universalLayoutV2DevelopmentFakeProvider,
         });
-        return res.json(validateDevelopmentUniversalLayoutV2Plan(plan, model));
+        const validatedPlan = validateDevelopmentUniversalLayoutV2Plan(plan, model);
+        log("plan_validation", "passed");
+        log("response", "completed", 200);
+        return res.json(validatedPlan);
       } catch (error) {
+        log("plan_validation", "failed");
         if (error instanceof DevelopmentUniversalLayoutV2RegistryError) {
           const status = error.code === "UNREGISTERED_HOST_SCREEN" ||
             error.code === "UNREGISTERED_STRUCTURE_VERSION" ? 404 : 400;
-          return fail(res, status, error.code);
+          return respondWithError(status, error.code);
         }
         if (error instanceof UniversalLayoutV2ValidationError) {
-          return fail(res, 400, error.code);
+          return respondWithError(400, error.code);
         }
         if (error instanceof UniversalLayoutV2GenerationError) {
           const status = error.code === "INVALID_MODEL" ? 400 : 502;
-          return fail(res, status, error.validationCode ?? error.code);
+          return respondWithError(status, error.validationCode ?? error.code);
         }
-        return fail(res, 502, "GENERATION_FAILED");
+        return respondWithError(502, "GENERATION_FAILED");
       }
     }));
   }
