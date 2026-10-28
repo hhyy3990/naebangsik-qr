@@ -11,6 +11,10 @@ import {
 import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator-v2";
 import { UniversalLayoutV2OpenAIRequestGuard } from "./universal-layout-v2-openai-request-guard";
 import {
+  createUniversalLayoutV2OpenAIProvider,
+  type UniversalLayoutV2OpenAIClient,
+} from "./universal-layout-v2-openai-provider";
+import {
   CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY,
   DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
 } from "./universal-v2-conformance-fixtures";
@@ -109,6 +113,56 @@ function testApp(provider: UniversalLayoutV2PlanProvider, guard = new UniversalL
     universalLayoutV2OpenAIRequestGuard: guard,
   });
 }
+
+test("v2 OpenAI adapter's strict JSON response passes the shared validator in-process", async () => {
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_V2_OPENAI_PROVIDER: "true",
+  }, async () => {
+    const model = demoModel();
+    const plan = {
+      schemaVersion: model.schemaVersion,
+      contractVersion: model.contractVersion,
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      operations: [{
+        type: "selectLayoutOption",
+        targetId: "menu.product-list",
+        groupId: "arrangement",
+        optionId: "compact-grid",
+      }],
+    };
+    let calls = 0;
+    let captured: Record<string, unknown> | undefined;
+    const provider = createUniversalLayoutV2OpenAIProvider({
+      apiKey: "test-only-not-used-by-injected-client",
+      client: {
+        responses: {
+          async create(args: Record<string, unknown>) {
+            calls += 1;
+            captured = args;
+            return { output_text: JSON.stringify(plan), output: [] };
+          },
+        },
+      } as unknown as UniversalLayoutV2OpenAIClient,
+    });
+    const response = await request(testApp(provider))
+      .post(route)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ model });
+    assert.equal(calls, 1);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.operations[0].type, "selectLayoutOption");
+    assert.equal(response.body.operations[0].optionId, "compact-grid");
+    const text = captured?.text as { format?: { type?: string; strict?: boolean } } | undefined;
+    assert.equal(text?.format?.type, "json_schema");
+    assert.equal(text?.format?.strict, true);
+  });
+});
 
 test("v2 OpenAI route is independently Development-gated and returns scoped, validated plans", async () => {
   await withEnvironment({

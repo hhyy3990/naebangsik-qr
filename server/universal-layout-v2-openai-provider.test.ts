@@ -6,9 +6,98 @@ import type {
   UniversalLayoutV2PromptPayload,
 } from "./universal-layout-generator-v2";
 import {
+  classifyUniversalLayoutV2OpenAIError,
   createUniversalLayoutV2OpenAIProvider,
   type UniversalLayoutV2OpenAIClient,
 } from "./universal-layout-v2-openai-provider";
+
+test("v2 OpenAI diagnostics classify allowlisted failure types without copying raw details", () => {
+  const cases: Array<[unknown, Record<string, unknown>]> = [
+    [{ name: "AuthenticationError", status: 401, code: "invalid_api_key" }, {
+      sdkErrorType: "AuthenticationError", httpResponseReceived: true, httpStatus: 401,
+      errorCategory: "authentication", timeout: false, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "PermissionDeniedError", status: 403 }, {
+      sdkErrorType: "PermissionDeniedError", httpResponseReceived: true, httpStatus: 403,
+      errorCategory: "permission", timeout: false, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "RateLimitError", status: 429, code: "rate_limit_exceeded" }, {
+      sdkErrorType: "RateLimitError", httpResponseReceived: true, httpStatus: 429,
+      errorCategory: "rate_limit", timeout: false, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "BadRequestError", status: 400, code: "invalid_request_error" }, {
+      sdkErrorType: "BadRequestError", httpResponseReceived: true, httpStatus: 400,
+      errorCategory: "bad_request", timeout: false, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "InternalServerError", status: 500 }, {
+      sdkErrorType: "InternalServerError", httpResponseReceived: true, httpStatus: 500,
+      errorCategory: "server_error", timeout: false, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "APIConnectionTimeoutError" }, {
+      sdkErrorType: "APIConnectionTimeoutError", httpResponseReceived: false, httpStatus: null,
+      errorCategory: "timeout", timeout: true, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "APIConnectionError", cause: { code: "ENOTFOUND" } }, {
+      sdkErrorType: "APIConnectionError", httpResponseReceived: false, httpStatus: null,
+      errorCategory: "network", timeout: false, networkException: true, schemaRejection: false,
+    }],
+    [{ name: "BadRequestError", status: 400, code: "invalid_json_schema" }, {
+      sdkErrorType: "BadRequestError", httpResponseReceived: true, httpStatus: 400,
+      errorCategory: "schema_rejected", timeout: false, networkException: false, schemaRejection: true,
+    }],
+    [{ name: "NotFoundError", status: 404, code: "model_not_found" }, {
+      sdkErrorType: "unknown", httpResponseReceived: true, httpStatus: 404,
+      errorCategory: "model_error", timeout: false, networkException: false, schemaRejection: false,
+    }],
+    [{ name: "PrivateErrorName", status: 418, code: "private-code", message: "private message" }, {
+      sdkErrorType: "unknown", httpResponseReceived: true, httpStatus: null,
+      errorCategory: "unknown", timeout: false, networkException: false, schemaRejection: false,
+    }],
+  ];
+
+  for (const [input, expected] of cases) {
+    assert.deepEqual(classifyUniversalLayoutV2OpenAIError(input), expected);
+    const serialized = JSON.stringify(classifyUniversalLayoutV2OpenAIError(input));
+    assert.equal(serialized.includes("private"), false);
+  }
+});
+
+test("v2 OpenAI adapter emits safe diagnostics and makes no adapter retry", async () => {
+  let calls = 0;
+  const diagnostics: unknown[] = [];
+  const provider = createUniversalLayoutV2OpenAIProvider({
+    client: {
+      responses: {
+        create: async () => {
+          calls += 1;
+          throw Object.assign(new Error("private URL and body"), {
+            name: "RateLimitError",
+            status: 429,
+            code: "rate_limit_exceeded",
+          });
+        },
+      },
+    } as unknown as UniversalLayoutV2OpenAIClient,
+    onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+  });
+  const input: Parameters<UniversalLayoutV2PlanProvider["generate"]>[0] = {
+    systemInstruction: "test",
+    payload: {} as UniversalLayoutV2PromptPayload,
+    responseSchema: { type: "object", additionalProperties: false, required: [], properties: {} },
+  };
+  await assert.rejects(provider.generate(input));
+  assert.equal(calls, 1);
+  assert.deepEqual(diagnostics, [{
+    sdkErrorType: "RateLimitError",
+    httpResponseReceived: true,
+    httpStatus: 429,
+    errorCategory: "rate_limit",
+    timeout: false,
+    networkException: false,
+    schemaRejection: false,
+  }]);
+  assert.equal(JSON.stringify(diagnostics).includes("private"), false);
+});
 
 test("v2 OpenAI adapter uses the v2 strict schema, existing model setting, and no response storage", async () => {
   const previousModel = process.env.UNIVERSAL_LAYOUT_DEV_OPENAI_MODEL;

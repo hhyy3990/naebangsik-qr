@@ -45,7 +45,10 @@ import {
   UniversalLayoutV2GenerationError,
   type UniversalLayoutV2PlanProvider,
 } from "./universal-layout-generator-v2";
-import { createUniversalLayoutV2OpenAIProvider } from "./universal-layout-v2-openai-provider";
+import {
+  createUniversalLayoutV2OpenAIProvider,
+  type UniversalLayoutV2OpenAIDiagnostic,
+} from "./universal-layout-v2-openai-provider";
 import {
   UniversalLayoutV2OpenAIScopeError,
   validateUniversalLayoutV2OpenAIScope,
@@ -221,7 +224,12 @@ function logUniversalV2OpenAIDiagnostic(
   requestId: string,
   stage: string,
   outcome: string,
-  fields: { statusCode?: number; openaiAttempted?: boolean } = {},
+  fields: {
+    statusCode?: number;
+    openaiAttempted?: boolean;
+    providerDiagnostic?: UniversalLayoutV2OpenAIDiagnostic;
+    failureStage?: string;
+  } = {},
 ): void {
   if (process.env.NODE_ENV !== "development") return;
   try {
@@ -577,10 +585,18 @@ export function createApp(
     app.post("/api/dev/universal-layout/v2/openai-plan", asyncRoute(async (req, res) => {
       const requestId = randomUUID();
       let openaiAttempted = false;
-      const log = (stage: string, outcome: string, statusCode?: number) =>
+        const log = (
+          stage: string,
+          outcome: string,
+          statusCode?: number,
+          providerDiagnostic?: UniversalLayoutV2OpenAIDiagnostic,
+          failureStage?: string,
+        ) =>
         logUniversalV2OpenAIDiagnostic(requestId, stage, outcome, {
           ...(statusCode === undefined ? {} : { statusCode }),
           openaiAttempted,
+            ...(providerDiagnostic ? { providerDiagnostic } : {}),
+            ...(failureStage ? { failureStage } : {}),
         });
       const respondWithError = (status: number, code: string) => {
         log("response", "completed", status);
@@ -645,7 +661,10 @@ export function createApp(
 
       try {
         const provider = layoutOptions.universalLayoutV2OpenAIProvider ??
-          createUniversalLayoutV2OpenAIProvider();
+          createUniversalLayoutV2OpenAIProvider({
+            onDiagnostic: (diagnostic) =>
+              log("provider_diagnostic", "classified", undefined, diagnostic),
+          });
         const guard = layoutOptions.universalLayoutV2OpenAIRequestGuard ??
           universalLayoutV2OpenAIProcessGuard;
         const result = await guard.run(
@@ -682,8 +701,10 @@ export function createApp(
           return respondWithError(400, error.code);
         }
         if (error instanceof UniversalLayoutV2GenerationError) {
+          log("generation_failure", "rejected", undefined, undefined, error.code);
           return respondWithError(502, error.validationCode ?? error.code);
         }
+        log("generation_failure", "rejected", undefined, undefined, "unknown");
         return respondWithError(502, "GENERATION_FAILED");
       }
     }));
