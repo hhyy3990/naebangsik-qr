@@ -488,6 +488,10 @@ export function validateUniversalLayoutV2Plan(
   return plan;
 }
 
+export function parseUniversalLayoutV2Plan(value: unknown): UniversalLayoutV2Plan {
+  return planSchema.parse(value);
+}
+
 /**
  * Validates one internal choice against policy-resolved option declarations.
  * The plan operation maps to this selector but retains its own strict wire shape.

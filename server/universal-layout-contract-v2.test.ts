@@ -14,6 +14,12 @@ import {
   type UniversalLayoutV2Policy,
 } from "./universal-layout-contract-v2";
 import { CIVIL_SERVICE_UNIVERSAL_MOCK_POLICY } from "./universal-layout-mock-policies";
+import {
+  UniversalLayoutV2GenerationError,
+  createUniversalLayoutV2PlanJsonSchema,
+  generateUniversalLayoutV2Plan,
+  type UniversalLayoutV2PromptPayload,
+} from "./universal-layout-generator-v2";
 
 const civilPolicy: UniversalLayoutV2Policy = {
   hostId: "civil-kiosk-mock",
@@ -797,4 +803,192 @@ test("selectLayoutOption rejects malformed, unsupported, stale, duplicate, and c
     ),
     /CONFLICTING_OPERATION_TARGET/,
   );
+});
+
+function fakePlanFromPayload(payload: UniversalLayoutV2PromptPayload, operations: unknown[]) {
+  return {
+    schemaVersion: payload.schemaVersion,
+    contractVersion: payload.contractVersion,
+    hostId: payload.hostId,
+    screenId: payload.screenId,
+    structureVersion: payload.structureVersion,
+    structureHash: payload.structureHash,
+    constraintHash: payload.constraintHash,
+    viewportClass: payload.viewportClass,
+    operations,
+  };
+}
+
+function fakeOptionOperation(payload: UniversalLayoutV2PromptPayload, optionId: string) {
+  const component = payload.components[0];
+  const group = component.optionGroups?.[0];
+  if (!group) throw new Error("FAKE_FIXTURE_OPTION_GROUP_MISSING");
+  return {
+    type: "selectLayoutOption",
+    targetId: component.id,
+    groupId: group.id,
+    optionId,
+  };
+}
+
+test("v2 generator runs model through test-only Fake provider, strict schema, and common validator", async () => {
+  const scenarios = [
+    { policy: optionDemoCoffeePolicy, optionId: "compact-grid", capabilities: [], accessibility: standardAccessibility },
+    { policy: optionCivilPolicy, optionId: "compact-grid", capabilities: [], accessibility: standardAccessibility },
+    {
+      policy: optionCivilPolicy,
+      optionId: "reserved-safe-list",
+      capabilities: ["reserved-bottom-controls"] as const,
+      accessibility: standardAccessibility,
+    },
+    {
+      policy: optionCivilPolicy,
+      optionId: "large-text-list",
+      capabilities: [],
+      accessibility: { ...standardAccessibility, textScale: "large" as const },
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const model = fixtureOptionModel(scenario.policy, scenario.capabilities, scenario.accessibility);
+    const provider = {
+      async generate({ payload, responseSchema }: {
+        payload: UniversalLayoutV2PromptPayload;
+        responseSchema: { properties: Record<string, unknown> };
+      }) {
+        const componentSchema = responseSchema.properties.operations as {
+          items: { oneOf?: Array<{ properties?: Record<string, { enum?: string[] }> }> };
+        };
+        assert.ok(componentSchema.items.oneOf?.some((variant) =>
+          variant.properties?.optionId?.enum?.includes(scenario.optionId),
+        ));
+        assert.equal("itemCount" in payload.components[0], false);
+        assert.equal("itemOrderHash" in payload.components[0], false);
+        return fakePlanFromPayload(payload, [fakeOptionOperation(payload, scenario.optionId)]);
+      },
+    };
+    const plan = await generateUniversalLayoutV2Plan({
+      model,
+      policies: optionPolicies,
+      provider,
+    });
+    assert.equal(plan.operations[0].type, "selectLayoutOption");
+    assert.equal(plan.operations[0].optionId, scenario.optionId);
+  }
+});
+
+test("v2 generator rejects invalid or stale Fake plans without repair or fallback", async () => {
+  const model = fixtureOptionModel(optionCivilPolicy);
+  const providerFor = (makeOutput: (payload: UniversalLayoutV2PromptPayload) => unknown) => ({
+    async generate({ payload }: { payload: UniversalLayoutV2PromptPayload }) {
+      return makeOutput(payload);
+    },
+  });
+  const validOperation = (payload: UniversalLayoutV2PromptPayload) =>
+    fakeOptionOperation(payload, "compact-grid");
+  const invalidOutputs = [
+    (payload: UniversalLayoutV2PromptPayload) => fakePlanFromPayload(payload, [
+      fakeOptionOperation(payload, "unregistered-option"),
+    ]),
+    (payload: UniversalLayoutV2PromptPayload) => fakePlanFromPayload(payload, [
+      { ...validOperation(payload), targetId: "missing.component" },
+    ]),
+    (payload: UniversalLayoutV2PromptPayload) => fakePlanFromPayload(payload, [
+      { ...validOperation(payload), groupId: "unknown-group" },
+    ]),
+    (payload: UniversalLayoutV2PromptPayload) => fakePlanFromPayload(payload, [
+      validOperation(payload),
+      validOperation(payload),
+    ]),
+    (payload: UniversalLayoutV2PromptPayload) => fakePlanFromPayload(payload, [
+      validOperation(payload),
+      fakeOptionOperation(payload, "large-text-list"),
+    ]),
+    (payload: UniversalLayoutV2PromptPayload) => fakePlanFromPayload(payload, [
+      validOperation(payload),
+      { type: "setColumns", targetId: payload.components[0].id, columns: 1 },
+    ]),
+    (payload: UniversalLayoutV2PromptPayload) => ({
+      ...fakePlanFromPayload(payload, [validOperation(payload)]),
+      constraintHash: "0".repeat(64),
+    }),
+    (payload: UniversalLayoutV2PromptPayload) => ({
+      ...fakePlanFromPayload(payload, [validOperation(payload)]),
+      extra: "not-allowed",
+    }),
+  ];
+  let providerCalls = 0;
+  for (const makeOutput of invalidOutputs) {
+    await assert.rejects(
+      generateUniversalLayoutV2Plan({
+        model,
+        policies: optionPolicies,
+        provider: {
+          async generate({ payload }: { payload: UniversalLayoutV2PromptPayload }) {
+            providerCalls += 1;
+            return makeOutput(payload);
+          },
+        },
+      }),
+      (error: unknown) => error instanceof UniversalLayoutV2GenerationError &&
+        ["PLAN_REJECTED", "INVALID_STRUCTURED_OUTPUT"].includes(error.code),
+    );
+  }
+  assert.equal(providerCalls, invalidOutputs.length);
+});
+
+test("v2 generator rejects a valid plan produced against a stale capability model", async () => {
+  const previousModel = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy),
+    optionPolicies,
+  );
+  const currentModel = fixtureOptionModel(optionCivilPolicy, ["reserved-bottom-controls"]);
+  const stalePlan = fakePlanFromPayload(
+    {
+      ...previousModel,
+      components: previousModel.components.map((component) => ({
+        ...component,
+        optionGroups: component.optionGroups ?? [],
+      })),
+    } as UniversalLayoutV2PromptPayload,
+    [{
+      type: "selectLayoutOption",
+      targetId: previousModel.components[0].id,
+      groupId: "arrangement",
+      optionId: "compact-grid",
+    }],
+  );
+  await assert.rejects(
+    generateUniversalLayoutV2Plan({
+      model: currentModel,
+      policies: optionPolicies,
+      provider: { async generate() { return stalePlan; } },
+    }),
+    (error: unknown) => error instanceof UniversalLayoutV2GenerationError &&
+      error.code === "PLAN_REJECTED" && error.validationCode === "PLAN_MODEL_MISMATCH",
+  );
+});
+
+test("v2 generator reports provider failures and timeout without retries or fallback", async () => {
+  for (const [error, expectedCode] of [
+    [new Error("fake provider failure"), "PROVIDER_FAILURE"],
+    [Object.assign(new Error("fake timeout"), { name: "FakeProviderTimeoutError" }), "PROVIDER_TIMEOUT"],
+  ] as const) {
+    let calls = 0;
+    await assert.rejects(
+      generateUniversalLayoutV2Plan({
+        model: fixtureOptionModel(optionCivilPolicy),
+        policies: optionPolicies,
+        provider: {
+          async generate() {
+            calls += 1;
+            throw error;
+          },
+        },
+      }),
+      (actual: unknown) => actual instanceof UniversalLayoutV2GenerationError &&
+        actual.code === expectedCode,
+    );
+    assert.equal(calls, 1);
+  }
 });

@@ -1,6 +1,6 @@
 # Universal Layout Contract v2 — 범용 레이아웃 설계안
 
-**Status:** 설계안 및 local prototype. v2는 `setColumns`, `selectLayoutOption`, `reserved-bottom-controls`, policy-owned option group 선언/접근성·capability 필터/해시 검증과 단일·복수 선택 검증을 제공한다. `selectLayoutOption`은 strict wire plan operation이며 Fake 테스트로 검증한다. 실제 provider, host 적용, API route, SDK, cache, Production 통합은 없다. 모든 AI 관련 스위치는 OFF로 유지한다.
+**Status:** 설계안 및 local prototype. v2는 `setColumns`, `selectLayoutOption`, `reserved-bottom-controls`, policy-owned option group 선언/접근성·capability 필터/해시 검증과 단일·복수 선택 검증을 제공한다. Provider-injected v2 generator는 Fake 테스트에서만 연결되며, 실제 AI provider, host 적용, API route, SDK, cache, Production 통합은 없다. 모든 AI 관련 스위치는 OFF로 유지한다.
 
 ## Why v2 is separate
 
@@ -46,7 +46,7 @@ The prototype reuses the v1 canonical JSON/SHA-256 primitive, but has independen
 - v2 requests and plans are accepted only by the v2 schema and validator.
 - Cross-version model/plan use fails strict schema validation.
 - Any future cache must include schema version, contract version, host, screen, structure version/hash, and constraint hash in its key. No cache was added or changed in this prototype.
-- The current generator is typed to v1 model/plan types and calls the v1 validator; it cannot safely be reused as-is. A future integration should extract only the provider transport/orchestration after contract selection, while keeping each version's strict schema and final validator separate.
+- The v1 generator remains typed to v1 model/plan types and is unchanged. v2 has a separate provider-injected generator that validates with the strict v2 schema and common v2 validator; only Fake providers are used, with no real provider or route.
 
 ## Host and trust boundary
 
@@ -206,7 +206,7 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 - operation 개수/중복 target 제한과 상호 조합 규칙을 확인한다. 권장 초기 규칙은 동일 component에 동일 operation을 두 번 허용하지 않고, 서로 덮어쓰는 조합은 명시적 policy 없이는 거부하는 것이다.
 - host는 적용 직전에 원본 model과 다시 검증하고, 화면 fingerprint가 바뀌었거나 capability/viewport가 바뀌면 결과를 버린다.
 
-현재 v2 plan validator는 `setColumns`와 `selectLayoutOption`을 strict schema로 확인한다. option ID 검증은 내부 단일·복수 validator를 재사용해 accessibility/capability-filtered 목록, 중복·충돌 선택을 검사한다. 동일 component의 `setColumns`와 option 선택은 거부한다. Fake provider와 hash-bound 결과 wrapper는 테스트 파일 안에서만 사용하며 제품 응답 계약이 아니다. arrangement, spacing, touch-target, scroll preset의 실제 적용 안전성은 아직 구현되어 있지 않다. host의 실제 렌더링·footer 위치를 중앙 validator가 증명할 수 없으므로 측정 실패 시 fail closed 해야 한다.
+현재 v2 plan validator는 `setColumns`와 `selectLayoutOption`을 strict schema로 확인한다. provider-injected v2 generator는 모델을 검증하고 strict plan schema 및 공통 validator를 통과한 계획만 반환한다. Fake provider는 테스트에서만 사용하며 실제 provider나 endpoint에는 연결되지 않았다. option ID 검증은 내부 단일·복수 validator를 재사용해 accessibility/capability-filtered 목록, 중복·충돌 선택을 검사한다. 동일 component의 `setColumns`와 option 선택은 거부한다. arrangement, spacing, touch-target, scroll preset의 실제 적용 안전성은 아직 구현되어 있지 않다. host의 실제 렌더링·footer 위치를 중앙 validator가 증명할 수 없으므로 측정 실패 시 fail closed 해야 한다.
 
 ### 7. v1 호환성
 
@@ -230,7 +230,7 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 2. **공통 policy/option registry 확장:** 현재 구현된 option group/ID 기반에 승인된 preset metadata와 조합 규칙을 추가한다. 현재 구현은 accessibility/capability 필터링 및 선언된 option ID 검증까지만 제공한다.
 3. **validator-only prototype 확장:** 현재 `setColumns`, capability, option hash/selection, 중복·충돌 선택 및 stale Fake 결과 검증을 바탕으로 golden vectors, accessibility 최소값, scroll/overlap 조건을 승인된 범위에서 검증한다.
 4. **host conformance fixtures:** 업종에 독립적인 fixture로 capability unknown/measurement failure, resize 및 footer 상태 변화 규칙을 확인한다. 실제 host 변경은 별도 승인 후 진행한다.
-5. **v2 generator와 fake provider:** strict structured output과 공통 v2 validator만 연결하고 실제 네트워크 없이 검증한다.
+5. **v2 generator와 fake provider:** provider-injected generator, strict structured output, 공통 v2 validator를 Fake provider로 연결해 내부 테스트했다. 실제 네트워크/provider 연결은 없다.
 6. **Development integration 승인:** 별도 요청으로 Development route/provider를 추가한다. 기본 OFF, v1/Production 분리, service Bearer 인증 유지, 실패 시 기존 화면 유지.
 7. **host별 시험 및 운영 승인:** 호스트 자체 검증/적용, 접근성·업무 불변성 검증을 마친 뒤 각 실제 통합과 Production 사용을 따로 승인한다.
 
