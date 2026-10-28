@@ -30,7 +30,7 @@ const componentSchema = z.object({
   order: z.number().int().nonnegative(),
   itemCount: z.number().int().nonnegative(),
   itemOrderHash: z.string().regex(/^[a-f0-9]{64}$/),
-  operations: z.array(z.literal("setColumns")).length(1),
+  operations: z.array(z.enum(["setColumns", "selectLayoutOption"])).min(1).max(2),
   allowedColumns: z.array(z.number().int().min(1).max(6)).min(1).max(6),
   optionGroups: z.array(z.object({
     id: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
@@ -52,7 +52,7 @@ const modelSchema = z.object({
   accessibility: accessSchema,
   layoutCapabilities: z.array(z.enum(UNIVERSAL_LAYOUT_V2_CAPABILITIES)).max(8),
   components: z.array(componentSchema).min(1).max(100),
-  allowedOperations: z.array(z.literal("setColumns")).length(1),
+  allowedOperations: z.array(z.enum(["setColumns", "selectLayoutOption"])).min(1).max(2),
 }).strict().superRefine((model, context) => {
   const componentIds = new Set<string>();
   const orders = new Set<number>();
@@ -65,6 +65,9 @@ const modelSchema = z.object({
     }
     if (new Set(component.allowedColumns).size !== component.allowedColumns.length) {
       context.addIssue({ code: "custom", path: ["components", index, "allowedColumns"], message: "DUPLICATE_COLUMN_VALUE" });
+    }
+    if (new Set(component.operations).size !== component.operations.length) {
+      context.addIssue({ code: "custom", path: ["components", index, "operations"], message: "DUPLICATE_COMPONENT_OPERATION" });
     }
     if (component.optionGroups) {
       const groupIds = new Set<string>();
@@ -92,6 +95,9 @@ const modelSchema = z.object({
   if (new Set(model.layoutCapabilities).size !== model.layoutCapabilities.length) {
     context.addIssue({ code: "custom", path: ["layoutCapabilities"], message: "DUPLICATE_LAYOUT_CAPABILITY" });
   }
+  if (new Set(model.allowedOperations).size !== model.allowedOperations.length) {
+    context.addIssue({ code: "custom", path: ["allowedOperations"], message: "DUPLICATE_ALLOWED_OPERATION" });
+  }
 });
 
 const planSchema = z.object({
@@ -103,11 +109,19 @@ const planSchema = z.object({
   structureHash: z.string().regex(/^[a-f0-9]{64}$/),
   constraintHash: z.string().regex(/^[a-f0-9]{64}$/),
   viewportClass: z.enum(["compact", "regular", "wide"]),
-  operations: z.array(z.object({
-    type: z.literal("setColumns"),
-    targetId: z.string().min(1),
-    columns: z.number().int().min(1).max(6),
-  }).strict()).min(1).max(20),
+  operations: z.array(z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("setColumns"),
+      targetId: z.string().min(1),
+      columns: z.number().int().min(1).max(6),
+    }).strict(),
+    z.object({
+      type: z.literal("selectLayoutOption"),
+      targetId: z.string().min(1),
+      groupId: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
+      optionId: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
+    }).strict(),
+  ])).min(1).max(20),
 }).strict();
 
 export type UniversalLayoutV2Model = z.infer<typeof modelSchema>;
@@ -362,10 +376,14 @@ export function createUniversalLayoutV2Model(
       !allowedColumns.length) {
       throw new UniversalLayoutV2ValidationError("COMPONENT_POLICY_MISMATCH");
     }
+    const operations = [
+      ...component.operations,
+      ...(optionGroups.length ? ["selectLayoutOption" as const] : []),
+    ];
     return {
       id: component.id, kind: component.kind, role: component.role, order: component.order,
       itemCount: state.itemCount, itemOrderHash: state.itemOrderHash,
-      operations: [...component.operations], allowedColumns,
+      operations, allowedColumns,
       ...(optionGroups.length ? { optionGroups } : {}),
       minimumTouchTargetPx: component.minimumTouchTargetPx,
       protectedProperties: [...component.protectedProperties],
@@ -381,7 +399,14 @@ export function createUniversalLayoutV2Model(
     components, allowedOperations: ["setColumns" as const],
   };
   const withStructure = { ...partial, structureHash: structureHash(partial) };
-  return modelSchema.parse({ ...withStructure, constraintHash: constraintHash(withStructure) });
+  const allowedOperations = [
+    "setColumns" as const,
+    ...(components.some((component) => component.operations.includes("selectLayoutOption"))
+      ? ["selectLayoutOption" as const]
+      : []),
+  ];
+  const withOperations = { ...withStructure, allowedOperations };
+  return modelSchema.parse({ ...withOperations, constraintHash: constraintHash(withOperations) });
 }
 
 export function validateUniversalLayoutV2Model(
@@ -427,27 +452,45 @@ export function validateUniversalLayoutV2Plan(
     plan.structureVersion !== model.structureVersion || plan.structureHash !== model.structureHash ||
     plan.constraintHash !== model.constraintHash || plan.viewportClass !== model.viewportClass
   ) throw new UniversalLayoutV2ValidationError("PLAN_MODEL_MISMATCH");
-  const targets = new Set<string>();
+  const setColumnsTargets = new Set<string>();
+  const optionSelections: UniversalLayoutV2OptionSelection[] = [];
   for (const operation of plan.operations) {
-    if (targets.has(operation.targetId)) {
-      throw new UniversalLayoutV2ValidationError("CONFLICTING_OPERATION_TARGET");
-    }
-    targets.add(operation.targetId);
     const component = model.components.find((entry) => entry.id === operation.targetId);
     if (!component) throw new UniversalLayoutV2ValidationError("UNSUPPORTED_PLAN_OPERATION");
-    if (!component.operations.includes(operation.type)) {
+    if (!model.allowedOperations.includes(operation.type) || !component.operations.includes(operation.type)) {
       throw new UniversalLayoutV2ValidationError("UNSUPPORTED_PLAN_OPERATION");
     }
-    if (!component.allowedColumns.includes(operation.columns)) {
-      throw new UniversalLayoutV2ValidationError("DISALLOWED_COLUMN_COUNT");
+    if (operation.type === "setColumns") {
+      if (
+        setColumnsTargets.has(operation.targetId) ||
+        optionSelections.some((selection) => selection.componentId === operation.targetId)
+      ) {
+        throw new UniversalLayoutV2ValidationError("CONFLICTING_OPERATION_TARGET");
+      }
+      setColumnsTargets.add(operation.targetId);
+      if (!component.allowedColumns.includes(operation.columns)) {
+        throw new UniversalLayoutV2ValidationError("DISALLOWED_COLUMN_COUNT");
+      }
+    } else {
+      if (setColumnsTargets.has(operation.targetId)) {
+        throw new UniversalLayoutV2ValidationError("CONFLICTING_OPERATION_TARGET");
+      }
+      optionSelections.push({
+        componentId: operation.targetId,
+        groupId: operation.groupId,
+        optionId: operation.optionId,
+      });
     }
+  }
+  if (optionSelections.length) {
+    validateUniversalLayoutV2OptionSelections(optionSelections, model, policies);
   }
   return plan;
 }
 
 /**
- * Validates an internal choice against the policy-resolved option declarations.
- * This is not an AI plan operation or a new wire-level plan schema.
+ * Validates one internal choice against policy-resolved option declarations.
+ * The plan operation maps to this selector but retains its own strict wire shape.
  */
 export function validateUniversalLayoutV2OptionSelection(
   value: unknown,

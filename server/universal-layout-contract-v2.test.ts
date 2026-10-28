@@ -632,3 +632,169 @@ test("fake option results reject stale hashes and duplicate or conflicting selec
     /CONFLICTING_OPTION_SELECTION/,
   );
 });
+
+test("selectLayoutOption wire operation reuses option validation across fixture policies", () => {
+  const scenarios = [
+    { policy: optionDemoCoffeePolicy, optionId: "compact-grid", capabilities: [], accessibility: standardAccessibility },
+    { policy: optionCivilPolicy, optionId: "compact-grid", capabilities: [], accessibility: standardAccessibility },
+    {
+      policy: optionCivilPolicy,
+      optionId: "reserved-safe-list",
+      capabilities: ["reserved-bottom-controls"] as const,
+      accessibility: standardAccessibility,
+    },
+    {
+      policy: optionCivilPolicy,
+      optionId: "large-text-list",
+      capabilities: [],
+      accessibility: { ...standardAccessibility, textScale: "large" as const },
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const model = validateUniversalLayoutV2Model(
+      fixtureOptionModel(scenario.policy, scenario.capabilities, scenario.accessibility),
+      optionPolicies,
+    );
+    const component = model.components[0];
+    const operation = {
+      type: "selectLayoutOption" as const,
+      targetId: component.id,
+      groupId: "arrangement",
+      optionId: scenario.optionId,
+    };
+    const plan = {
+      schemaVersion: model.schemaVersion,
+      contractVersion: model.contractVersion,
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      operations: [operation],
+    };
+    assert.ok(model.allowedOperations.includes("selectLayoutOption"));
+    assert.ok(component.operations.includes("selectLayoutOption"));
+    assert.deepEqual(validateUniversalLayoutV2Plan(plan, model, optionPolicies).operations, [operation]);
+  }
+});
+
+test("selectLayoutOption rejects malformed, unsupported, stale, duplicate, and conflicting plans", () => {
+  const standard = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy),
+    optionPolicies,
+  );
+  const reserved = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy, ["reserved-bottom-controls"]),
+    optionPolicies,
+  );
+  const componentId = optionCivilPolicy.components[0].id;
+  const operation = (optionId: string, groupId = "arrangement") => ({
+    type: "selectLayoutOption",
+    targetId: componentId,
+    groupId,
+    optionId,
+  });
+  const plan = (model: typeof standard, operations: unknown[]) => ({
+    schemaVersion: model.schemaVersion,
+    contractVersion: model.contractVersion,
+    hostId: model.hostId,
+    screenId: model.screenId,
+    structureVersion: model.structureVersion,
+    structureHash: model.structureHash,
+    constraintHash: model.constraintHash,
+    viewportClass: model.viewportClass,
+    operations,
+  });
+
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(plan(standard, [operation("unknown-option")]), standard, optionPolicies),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      plan(standard, [{ ...operation("compact-grid"), targetId: "missing.component" }]),
+      standard,
+      optionPolicies,
+    ),
+    /UNSUPPORTED_PLAN_OPERATION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(plan(standard, [operation("compact-grid", "unknown-group")]), standard, optionPolicies),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(plan(standard, [{ type: "selectLayoutOption", targetId: componentId, optionId: "compact-grid" }]), standard, optionPolicies),
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(plan(standard, [{ ...operation("compact-grid"), style: "grid" }]), standard, optionPolicies),
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(plan(reserved, [operation("compact-grid")]), reserved, optionPolicies),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(plan(standard, [operation("compact-grid")]), reserved, optionPolicies),
+    /PLAN_MODEL_MISMATCH/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      { ...plan(standard, [operation("compact-grid")]), constraintHash: "0".repeat(64) },
+      standard,
+      optionPolicies,
+    ),
+    /PLAN_MODEL_MISMATCH/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      { ...plan(standard, [operation("compact-grid")]), contractVersion: "universal-layout.v1" },
+      standard,
+      optionPolicies,
+    ),
+  );
+  const noOptionModel = validateUniversalLayoutV2Model(
+    fixtureOptionModel(demoCoffeePolicy),
+    [demoCoffeePolicy],
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      plan(noOptionModel, [{
+        type: "selectLayoutOption",
+        targetId: noOptionModel.components[0].id,
+        groupId: "arrangement",
+        optionId: "compact-grid",
+      }]),
+      noOptionModel,
+      [demoCoffeePolicy],
+    ),
+    /UNSUPPORTED_PLAN_OPERATION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      plan(standard, [operation("compact-grid"), operation("compact-grid")]),
+      standard,
+      optionPolicies,
+    ),
+    /DUPLICATE_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      plan(standard, [operation("compact-grid"), operation("large-text-list")]),
+      standard,
+      optionPolicies,
+    ),
+    /CONFLICTING_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2Plan(
+      plan(standard, [
+        operation("compact-grid"),
+        { type: "setColumns", targetId: componentId, columns: 1 },
+      ]),
+      standard,
+      optionPolicies,
+    ),
+    /CONFLICTING_OPERATION_TARGET/,
+  );
+});

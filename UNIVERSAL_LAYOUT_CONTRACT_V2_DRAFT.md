@@ -1,6 +1,6 @@
 # Universal Layout Contract v2 — 범용 레이아웃 설계안
 
-**Status:** 설계안 및 local prototype. v2는 `setColumns`, `reserved-bottom-controls`, policy-owned option group 선언/접근성·capability 필터/해시 검증과 단일·복수 내부 option 선택 검증을 제공한다. 테스트 전용 Fake provider로 검증하며, 새 AI plan operation과 실제 preset 적용은 아직 제안 상태다. API route, provider, host, SDK, cache, Production 통합은 없다. 모든 AI 관련 스위치는 OFF로 유지한다.
+**Status:** 설계안 및 local prototype. v2는 `setColumns`, `selectLayoutOption`, `reserved-bottom-controls`, policy-owned option group 선언/접근성·capability 필터/해시 검증과 단일·복수 선택 검증을 제공한다. `selectLayoutOption`은 strict wire plan operation이며 Fake 테스트로 검증한다. 실제 provider, host 적용, API route, SDK, cache, Production 통합은 없다. 모든 AI 관련 스위치는 OFF로 유지한다.
 
 ## Why v2 is separate
 
@@ -102,11 +102,11 @@ No Production identity or capability policy is approved by this draft.
 
 ## 범용 v2 확장 제안
 
-현재 prototype의 strict schema, 별도 v2 hash namespace, 등록 정책 기반 model 재구성, capability 효과를 반영한 검증은 유지한다. policy-owned option group 선언, accessibility/capability 조건에 따른 option 목록 필터링, constraint hash 결속, 내부 option ID 검증 기반은 local로 구현되어 있다. 이는 새 AI plan operation이나 CSS 적용을 지원하지 않는다. 나머지 확장안은 구현 전 승인을 위한 설계다. 업종별 prompt 대신 모든 화면에 같은 operation semantics와 공통 validator를 적용하고, 화면별 차이는 등록된 host/screen policy와 host가 미리 구현한 layout option으로 표현한다.
+현재 prototype의 strict schema, 별도 v2 hash namespace, 등록 정책 기반 model 재구성, capability 효과를 반영한 검증은 유지한다. policy-owned option group 선언, accessibility/capability 조건에 따른 option 목록 필터링, constraint hash 결속, `selectLayoutOption` wire operation과 validator는 local로 구현되어 있다. operation은 등록 option ID를 고를 뿐이며 CSS나 host preset 적용을 수행하지 않는다. 나머지 확장안은 구현 전 승인을 위한 설계다. 업종별 prompt 대신 모든 화면에 같은 operation semantics와 공통 validator를 적용하고, 화면별 차이는 등록된 host/screen policy와 host가 미리 구현한 layout option으로 표현한다.
 
 ### 1. v1 대비 추가 기능
 
-v1은 반복 목록의 `setColumns`만 허용한다. v2 prototype도 현재 `setColumns`만 구현하고 `reserved-bottom-controls` capability를 통해 정책상 허용 열을 좁힌다. 범용 v2는 다음을 추가로 다룰 수 있게 한다.
+v1은 반복 목록의 `setColumns`만 허용한다. v2 prototype은 `setColumns`에 더해 등록 option ID를 선택하는 `selectLayoutOption`과 `reserved-bottom-controls` capability를 지원한다. 더 많은 preset 종류와 실제 적용 semantics는 별도 검증이 필요하다.
 
 - 열 수 외에 카드/메뉴의 사전 구현 배치 패턴 선택
 - host가 정의한 간격 및 터치 대상 크기 preset 선택
@@ -140,6 +140,7 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 | 제안 operation | 대상 | AI 선택 값 | 의미 |
 |---|---|---|---|
 | `setColumns` | 등록된 반복 목록 | 허용된 정수 열 수 | v1에서 이어지는 열 수 선택 |
+| `selectLayoutOption` | 등록된 component | `groupId`, 등록 `optionId` | 호스트가 선언한 option만 선택. 화면 적용은 하지 않음 |
 | `setArrangement` | 등록된 카드/메뉴 container | host policy가 허용한 `optionId` | 예: 등록된 grid/list 또는 세로/가로 카드 배치 |
 | `setSpacingPreset` | 등록된 layout group | `spacingPresetId` | host가 구현한 간격 token 묶음 선택 |
 | `setTouchTargetPreset` | 등록된 조작 요소 group | `targetPresetId` | host가 구현한 크기 preset 선택. 실제 최소 터치 크기는 preset metadata와 policy가 보장 |
@@ -152,6 +153,7 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 ### 4. operation 안전 제약
 
 - `setColumns`: component별 allowed set 안의 값만 허용한다. accessibility와 capability가 허용 집합을 줄일 수는 있지만 확장할 수 없다.
+- `selectLayoutOption`: `targetId`, `groupId`, `optionId`가 model의 policy-resolved 목록에 있어야 한다. capability·접근성 필터링, model hash, strict 필드 검사와 중복 선택 거부를 적용한다. 같은 component에서 `setColumns`와 함께 사용하면 조합 semantics가 확정되지 않았으므로 거부한다.
 - `setArrangement`: 등록된 layout component와 preset ID에만 허용한다. 항목 순서·내용·선택·업무 행동을 표현하는 preset은 등록 금지한다.
 - `setSpacingPreset`: 등록된 token ID만 허용한다. 보호된 요소를 가리거나 footer·QR dock와 겹칠 수 있는 선택지는 해당 화면 정책에 등록하지 않는다.
 - `setTouchTargetPreset`: 적용 결과의 모든 interactive target이 policy와 accessibility에서 요구하는 최솟값 이상이어야 한다. AI가 픽셀 수를 직접 낮추거나 접근성 preference를 변경할 수 없다.
@@ -204,12 +206,12 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 - operation 개수/중복 target 제한과 상호 조합 규칙을 확인한다. 권장 초기 규칙은 동일 component에 동일 operation을 두 번 허용하지 않고, 서로 덮어쓰는 조합은 명시적 policy 없이는 거부하는 것이다.
 - host는 적용 직전에 원본 model과 다시 검증하고, 화면 fingerprint가 바뀌었거나 capability/viewport가 바뀌면 결과를 버린다.
 
-현재 v2 plan validator는 columns와 capability effect를 확인한다. 내부 단일·복수 option validator는 등록 option ID와 accessibility/capability-filtered 목록을 확인하고 중복·충돌 선택을 거부한다. Fake provider와 hash-bound 결과 wrapper는 테스트 파일 안에서만 사용하며 제품 응답 계약이 아니다. 이 선택기는 AI plan operation이 아니며 spacing, touch-target, arrangement, scroll preset의 실제 적용 안전성은 아직 구현되어 있지 않다. host의 실제 렌더링·footer 위치를 중앙 validator가 증명할 수 없으므로 측정 실패 시 fail closed 해야 한다.
+현재 v2 plan validator는 `setColumns`와 `selectLayoutOption`을 strict schema로 확인한다. option ID 검증은 내부 단일·복수 validator를 재사용해 accessibility/capability-filtered 목록, 중복·충돌 선택을 검사한다. 동일 component의 `setColumns`와 option 선택은 거부한다. Fake provider와 hash-bound 결과 wrapper는 테스트 파일 안에서만 사용하며 제품 응답 계약이 아니다. arrangement, spacing, touch-target, scroll preset의 실제 적용 안전성은 아직 구현되어 있지 않다. host의 실제 렌더링·footer 위치를 중앙 validator가 증명할 수 없으므로 측정 실패 시 fail closed 해야 한다.
 
 ### 7. v1 호환성
 
 - v1은 `universal-layout.v1`과 현재 schema/hash/validator를 그대로 유지한다. v2 field나 operation을 v1 요청에 섞지 않는다.
-- v2는 `schemaVersion: 2`, `contractVersion: "universal-layout.v2"`와 독립된 strict schema/hash namespace를 유지한다.
+- v2는 `schemaVersion: 2`, `contractVersion: "universal-layout.v2"`와 독립된 strict schema/hash namespace를 유지하며 `selectLayoutOption`은 v2에서만 허용한다.
 - v1 `setColumns` plan을 v2로 자동 변환하거나 그 반대로 변환하지 않는다.
 - provider transport/orchestration은 나중에 공통화할 수 있지만, contract 선택, response schema, model/plan validator는 버전별로 분리한다.
 - v1 route, Mock, cache, rate limit, host 적용 경로 변경은 v2 승인 범위에 포함되지 않는다.
@@ -218,13 +220,13 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 
 아래는 동작을 설명하는 policy 예시이며, 실제 DemoCoffee 또는 Civil host의 v2 등록 승인이나 적용을 뜻하지 않는다.
 
-**DemoCoffee 메뉴:** `menu.product-list`가 `setColumns`와 등록된 card arrangement/spacing preset만 지원한다고 선언한다. 표준 글씨·일반 viewport에서는 1열/2열 option을 허용할 수 있다. 큰 글씨나 큰 버튼이면 policy가 1열 및 여유 있는 spacing preset만 model에 포함한다. 상품 이름·가격·카테고리·순서·선택·주문 action은 model/provider/operation에서 제외한다.
+**DemoCoffee 메뉴:** `menu.product-list`는 `setColumns`와 policy에 등록된 `selectLayoutOption`을 허용할 수 있다. 현재 fixture의 `compact-grid` / `large-text-list`는 선택 ID 검증만 하며, 실제 card arrangement나 spacing 적용은 하지 않는다. 상품 이름·가격·카테고리·순서·선택·주문 action은 model/provider/operation에서 제외한다.
 
-**무인민원발급기 증명서 메뉴:** `civil.certificate-grid`가 `setColumns`, touch-target preset, 승인된 scroll preset을 선언한다고 가정한다. 18개 증명서 내용/순서는 보호하고 item-order fingerprint로 model 변화를 탐지한다. 실제 footer/QR dock가 화면 하단을 차지하면 host가 측정한 reserved capability를 선언하고 registry가 충돌 가능한 조합을 제외한다. 큰 글씨, 높은 대비 또는 측정 실패는 더 안전한 허용 집합 또는 non-AI layout으로 처리한다. 발급/개인정보/QR 인증은 어떠한 AI operation에도 노출하지 않는다.
+**무인민원발급기 증명서 메뉴:** `civil.certificate-grid` fixture는 `setColumns`와 등록 option ID에 대한 `selectLayoutOption`을 검증한다. 현재 `reserved-safe-list` / `large-text-list`도 ID 선택까지만 확인하며 touch-target 또는 scroll 동작을 적용하지 않는다. 18개 증명서 내용/순서는 보호하고 item-order fingerprint로 model 변화를 탐지한다. `reserved-bottom-controls`가 있으면 호환되지 않는 option은 model에서 빠지고 plan 검증에서 거부된다. 발급/개인정보/QR 인증은 어떠한 AI operation에도 노출하지 않는다.
 
 ### 9. 단계별 구현 순서
 
-1. **계약 합의:** 아래 승인 결정사항, operation 표현, model 필드, privacy payload 경계를 확정한다.
+1. **계약 합의:** 첫 operation인 `selectLayoutOption`과 strict wire 구조는 구현했다. 추가 operation, preset 적용 semantics, privacy payload 경계는 별도 결정으로 남긴다.
 2. **공통 policy/option registry 확장:** 현재 구현된 option group/ID 기반에 승인된 preset metadata와 조합 규칙을 추가한다. 현재 구현은 accessibility/capability 필터링 및 선언된 option ID 검증까지만 제공한다.
 3. **validator-only prototype 확장:** 현재 `setColumns`, capability, option hash/selection, 중복·충돌 선택 및 stale Fake 결과 검증을 바탕으로 golden vectors, accessibility 최소값, scroll/overlap 조건을 승인된 범위에서 검증한다.
 4. **host conformance fixtures:** 업종에 독립적인 fixture로 capability unknown/measurement failure, resize 및 footer 상태 변화 규칙을 확인한다. 실제 host 변경은 별도 승인 후 진행한다.
@@ -234,13 +236,13 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 
 ### 10. 구현 전 사용자 승인 필요 항목
 
-1. 초기 v2는 여러 typed operation을 지원할지, 검증된 조합을 묶은 `selectLayoutPreset` 하나로 제한할지.
+1. 현재 `selectLayoutOption` 이후 여러 typed operation을 추가할지, 검증된 조합을 묶은 `selectLayoutPreset` 하나로 제한할지.
 2. 허용 operation 목록과 option ID가 중앙 registry 소유인지, host manifest를 중앙이 승인·버전 관리하는 방식인지.
 3. `reserved-bottom-controls`만 capability로 유지할지, edge/inset/geometry를 표현하는 새 capability/schema가 필요한지. 실측 단위와 unknown/failure 동작도 확정해야 한다.
 4. viewport pixel dimensions와 item count/order hash 중 provider payload에 넣을 정보의 최소 범위. 개인정보·항목 내용은 어떤 경우에도 넣지 않는다.
 5. 최소 터치 크기 및 spacing preset의 기준·단위·각 accessibility mode의 최솟값.
 6. page/region scroll 전환을 v2 초기 범위에 넣을지, focus·키보드·nested scroll 검증을 마칠 때까지 보류할지.
-7. 여러 operation의 원자적 조합/우선순위, 충돌 시 reject인지 단일 preset 강제인지.
+7. 여러 option group의 원자적 조합/우선순위, 추가 operation과의 충돌 시 reject인지 단일 preset 강제인지.
 8. capability 감지 unknown, resize 중 stale plan, 측정 실패 때 적용을 막는 host-side fail-closed 기준과 UI fallback.
 9. v2 정책 registry와 golden vectors를 각 host와 어떻게 동기화하고 승인할지.
 
