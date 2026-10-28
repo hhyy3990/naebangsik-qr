@@ -33,3 +33,47 @@ export const DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY: UniversalLayoutV2Polic
     protectedProperties: ["items", "order", "selection", "actions"],
   }],
 };
+
+/**
+ * Test-only Civil policy copied from the v2 conformance tests.
+ * The host identifier/version are mock values and are not host-confirmed.
+ */
+export const CIVIL_UNIVERSAL_V2_CONFORMANCE_POLICY: UniversalLayoutV2Policy = {
+  hostId: "civil-kiosk-mock",
+  screenId: "civil.main-menu",
+  structureVersion: "civil-main-mock.v1",
+  allowedCapabilities: ["reserved-bottom-controls"],
+  capabilityRules: {
+    "reserved-bottom-controls": {
+      componentIds: ["civil.certificate-grid"],
+      maximumColumns: 1,
+    },
+  },
+  components: [{
+    id: "civil.certificate-grid",
+    kind: "repeated-card-list",
+    role: "certificate-choice-list",
+    order: 0,
+    itemCountRange: [18, 18],
+    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2] },
+    singleColumnForLargeText: true,
+    singleColumnForLargeButtons: true,
+    singleColumnForHighContrast: true,
+    singleColumnForBottomViewport: true,
+    operations: ["setColumns"],
+    optionGroups: [{
+      id: "arrangement",
+      options: [
+        {
+          id: "compact-grid",
+          excludesCapabilities: ["reserved-bottom-controls"],
+          accessibility: { textScale: ["standard"] },
+        },
+        { id: "reserved-safe-list", requiresCapabilities: ["reserved-bottom-controls"] },
+        { id: "large-text-list", accessibility: { textScale: ["large", "extraLarge"] } },
+      ],
+    }],
+    minimumTouchTargetPx: 44,
+    protectedProperties: ["items", "order", "selection", "issuance-actions"],
+  }],
+};

@@ -22,6 +22,7 @@ import {
 } from "./universal-layout-generator-v2";
 import {
   DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY as optionDemoCoffeePolicy,
+  CIVIL_UNIVERSAL_V2_CONFORMANCE_POLICY as optionCivilPolicy,
 } from "./universal-v2-conformance-fixtures";
 
 const civilPolicy: UniversalLayoutV2Policy = {
@@ -75,24 +76,6 @@ const demoCoffeePolicy: UniversalLayoutV2Policy = {
   }],
 };
 
-const optionCivilPolicy: UniversalLayoutV2Policy = {
-  ...civilPolicy,
-  components: [{
-    ...civilPolicy.components[0],
-    optionGroups: [{
-      id: "arrangement",
-      options: [
-        {
-          id: "compact-grid",
-          excludesCapabilities: ["reserved-bottom-controls"],
-          accessibility: { textScale: ["standard"] },
-        },
-        { id: "reserved-safe-list", requiresCapabilities: ["reserved-bottom-controls"] },
-        { id: "large-text-list", accessibility: { textScale: ["large", "extraLarge"] } },
-      ],
-    }],
-  }],
-};
 const optionPolicies = [optionCivilPolicy, optionDemoCoffeePolicy] as const;
 
 const standardAccessibility = {
