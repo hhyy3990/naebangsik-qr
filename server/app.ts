@@ -45,6 +45,16 @@ import {
   UniversalLayoutV2GenerationError,
   type UniversalLayoutV2PlanProvider,
 } from "./universal-layout-generator-v2";
+import { createUniversalLayoutV2OpenAIProvider } from "./universal-layout-v2-openai-provider";
+import {
+  UniversalLayoutV2OpenAIScopeError,
+  validateUniversalLayoutV2OpenAIScope,
+} from "./universal-layout-v2-openai-scope";
+import {
+  UniversalLayoutV2OpenAIRequestGuard,
+  universalLayoutV2ModelFingerprint,
+  universalLayoutV2OpenAIProcessGuard,
+} from "./universal-layout-v2-openai-request-guard";
 import {
   resolveDevelopmentUniversalLayoutV2Registration,
   validateDevelopmentUniversalLayoutV2Model,
@@ -207,6 +217,25 @@ function logUniversalV2FakeDiagnostic(
   }
 }
 
+function logUniversalV2OpenAIDiagnostic(
+  requestId: string,
+  stage: string,
+  outcome: string,
+  fields: { statusCode?: number; openaiAttempted?: boolean } = {},
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  try {
+    console.info(JSON.stringify({
+      event: `universal_v2_openai_${stage}`,
+      requestId,
+      outcome,
+      ...fields,
+    }));
+  } catch {
+    // Diagnostics must never change request processing.
+  }
+}
+
 type UniversalDevDiagnosticErrorCode =
   | "NONE"
   | "SERVICE_NOT_CONFIGURED"
@@ -349,6 +378,8 @@ export function createApp(
     demoOptionsPolicies?: typeof registeredDemoOptionsPolicies;
     universalLayoutOpenAIProvider?: UniversalLayoutPlanProvider;
     universalLayoutV2FakeProvider?: UniversalLayoutV2PlanProvider;
+    universalLayoutV2OpenAIProvider?: UniversalLayoutV2PlanProvider;
+    universalLayoutV2OpenAIRequestGuard?: UniversalLayoutV2OpenAIRequestGuard;
     maxRequestsPerHost?: number;
   } = {},
 ) {
@@ -378,6 +409,9 @@ export function createApp(
   const universalDevV2FakeEnabled =
     process.env.NODE_ENV === "development" &&
     process.env.UNIVERSAL_LAYOUT_DEV_V2_FAKE_API === "true";
+  const universalDevV2OpenAIEnabled =
+    process.env.NODE_ENV === "development" &&
+    process.env.UNIVERSAL_LAYOUT_DEV_V2_OPENAI_PROVIDER === "true";
 
   app.disable("x-powered-by");
   if (universalDevMockEnabled) {
@@ -535,6 +569,122 @@ export function createApp(
             : "GENERATION_FAILED";
         const status = code === "INVALID_MODEL" ? 400 : code === "AI_NOT_CONFIGURED" ? 503 : 502;
         return fail(res, status, code);
+      }
+    }));
+  }
+
+  if (universalDevV2OpenAIEnabled) {
+    app.post("/api/dev/universal-layout/v2/openai-plan", asyncRoute(async (req, res) => {
+      const requestId = randomUUID();
+      let openaiAttempted = false;
+      const log = (stage: string, outcome: string, statusCode?: number) =>
+        logUniversalV2OpenAIDiagnostic(requestId, stage, outcome, {
+          ...(statusCode === undefined ? {} : { statusCode }),
+          openaiAttempted,
+        });
+      const respondWithError = (status: number, code: string) => {
+        log("response", "completed", status);
+        return fail(res, status, code);
+      };
+
+      res.setHeader("Cache-Control", "no-store");
+      log("request_entered", "reached");
+      const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
+      if (!expectedToken) {
+        log("authentication", "failed");
+        return respondWithError(503, "SERVICE_NOT_CONFIGURED");
+      }
+
+      const authorization = req.get("authorization") ?? "";
+      const match = /^Bearer ([^\s]+)$/.exec(authorization);
+      const expectedBuffer = Buffer.from(expectedToken);
+      const providedBuffer = Buffer.from(match?.[1] ?? "");
+      const authorized = expectedBuffer.length === providedBuffer.length &&
+        timingSafeEqual(expectedBuffer, providedBuffer);
+      log("authentication", authorized ? "passed" : "failed");
+      if (!authorized) return respondWithError(401, "AUTH_REQUIRED");
+
+      const parsed = z.object({ model: universalLayoutV2ModelSchema }).strict().safeParse(req.body);
+      log("model_schema_validation", parsed.success ? "passed" : "failed");
+      if (!parsed.success) return respondWithError(400, "INVALID_REQUEST");
+
+      let model: ReturnType<typeof validateDevelopmentUniversalLayoutV2Model>;
+      let registration: ReturnType<typeof resolveDevelopmentUniversalLayoutV2Registration>;
+      try {
+        registration = resolveDevelopmentUniversalLayoutV2Registration(
+          parsed.data.model.hostId,
+          parsed.data.model.screenId,
+        );
+        model = validateDevelopmentUniversalLayoutV2Model(parsed.data.model);
+        log("registry_validation", "passed");
+      } catch (error) {
+        log("registry_validation", "failed");
+        if (error instanceof DevelopmentUniversalLayoutV2RegistryError) {
+          const status = error.code === "UNREGISTERED_HOST_SCREEN" ||
+            error.code === "UNREGISTERED_STRUCTURE_VERSION" ? 404 : 400;
+          return respondWithError(status, error.code);
+        }
+        if (error instanceof UniversalLayoutV2ValidationError) {
+          return respondWithError(400, error.code);
+        }
+        return respondWithError(400, "INVALID_MODEL");
+      }
+
+      try {
+        validateUniversalLayoutV2OpenAIScope(model, registration);
+        log("pilot_scope_validation", "passed");
+      } catch (error) {
+        log("pilot_scope_validation", "failed");
+        return respondWithError(
+          403,
+          error instanceof UniversalLayoutV2OpenAIScopeError
+            ? error.code
+            : "V2_OPENAI_SCOPE_REJECTED",
+        );
+      }
+
+      try {
+        const provider = layoutOptions.universalLayoutV2OpenAIProvider ??
+          createUniversalLayoutV2OpenAIProvider();
+        const guard = layoutOptions.universalLayoutV2OpenAIRequestGuard ??
+          universalLayoutV2OpenAIProcessGuard;
+        const result = await guard.run(
+          universalLayoutV2ModelFingerprint(model),
+          async () => {
+            openaiAttempted = true;
+            log("openai_call", "started");
+            const plan = await generateUniversalLayoutV2Plan({
+              model,
+              policies: [registration.policy],
+              provider,
+            });
+            return validateDevelopmentUniversalLayoutV2Plan(plan, model);
+          },
+        );
+        if (result.source === "generated") log("openai_call", "succeeded");
+        log("plan_validation", result.source === "generated" ? "passed" : result.source);
+        log("response", "completed", 200);
+        return res.json(result.plan);
+      } catch (error) {
+        if (openaiAttempted) log("openai_call", "failed");
+        if (error instanceof Error && error.name === "UniversalLayoutV2OpenAICallLimitError") {
+          return respondWithError(429, "V2_OPENAI_CALL_LIMIT_REACHED");
+        }
+        if (error instanceof Error && error.message === "AI_NOT_CONFIGURED") {
+          return respondWithError(503, "AI_NOT_CONFIGURED");
+        }
+        if (error instanceof DevelopmentUniversalLayoutV2RegistryError) {
+          const status = error.code === "UNREGISTERED_HOST_SCREEN" ||
+            error.code === "UNREGISTERED_STRUCTURE_VERSION" ? 404 : 400;
+          return respondWithError(status, error.code);
+        }
+        if (error instanceof UniversalLayoutV2ValidationError) {
+          return respondWithError(400, error.code);
+        }
+        if (error instanceof UniversalLayoutV2GenerationError) {
+          return respondWithError(502, error.validationCode ?? error.code);
+        }
+        return respondWithError(502, "GENERATION_FAILED");
       }
     }));
   }
