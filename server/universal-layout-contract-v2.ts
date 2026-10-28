@@ -32,6 +32,10 @@ const componentSchema = z.object({
   itemOrderHash: z.string().regex(/^[a-f0-9]{64}$/),
   operations: z.array(z.literal("setColumns")).length(1),
   allowedColumns: z.array(z.number().int().min(1).max(6)).min(1).max(6),
+  optionGroups: z.array(z.object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
+    optionIds: z.array(z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/)).min(1).max(100),
+  }).strict()).min(1).max(32).optional(),
   minimumTouchTargetPx: z.number().int().min(44).max(96),
   protectedProperties: z.array(z.string().min(1)).min(1),
 }).strict();
@@ -61,6 +65,26 @@ const modelSchema = z.object({
     }
     if (new Set(component.allowedColumns).size !== component.allowedColumns.length) {
       context.addIssue({ code: "custom", path: ["components", index, "allowedColumns"], message: "DUPLICATE_COLUMN_VALUE" });
+    }
+    if (component.optionGroups) {
+      const groupIds = new Set<string>();
+      for (const [groupIndex, group] of component.optionGroups.entries()) {
+        if (groupIds.has(group.id)) {
+          context.addIssue({
+            code: "custom",
+            path: ["components", index, "optionGroups", groupIndex, "id"],
+            message: "DUPLICATE_OPTION_GROUP_ID",
+          });
+        }
+        if (new Set(group.optionIds).size !== group.optionIds.length) {
+          context.addIssue({
+            code: "custom",
+            path: ["components", index, "optionGroups", groupIndex, "optionIds"],
+            message: "DUPLICATE_OPTION_ID",
+          });
+        }
+        groupIds.add(group.id);
+      }
     }
     componentIds.add(component.id);
     orders.add(component.order);
@@ -111,10 +135,44 @@ export type UniversalLayoutV2Policy = {
     singleColumnForHighContrast: boolean;
     singleColumnForBottomViewport: boolean;
     operations: readonly ["setColumns"];
+    optionGroups?: readonly UniversalLayoutV2OptionGroupPolicy[];
     minimumTouchTargetPx: number;
     protectedProperties: readonly string[];
   }[];
 };
+
+/**
+ * A policy-owned host preset identifier. This declares availability only; it
+ * does not introduce an AI plan operation or encode CSS/style values.
+ */
+export type UniversalLayoutV2OptionDefinition = {
+  id: string;
+  requiresCapabilities?: readonly UniversalLayoutV2Capability[];
+  excludesCapabilities?: readonly UniversalLayoutV2Capability[];
+  accessibility?: Partial<{
+    textScale: readonly UniversalLayoutV2Accessibility["textScale"][];
+    buttonScale: readonly UniversalLayoutV2Accessibility["buttonScale"][];
+    contrast: readonly UniversalLayoutV2Accessibility["contrast"][];
+    viewportMode: readonly ("none" | "bottom-60" | "bottom-70" | "bottom-80")[];
+  }>;
+};
+
+export type UniversalLayoutV2OptionGroupPolicy = {
+  id: string;
+  options: readonly UniversalLayoutV2OptionDefinition[];
+};
+
+export type UniversalLayoutV2OptionSelection = {
+  componentId: string;
+  groupId: string;
+  optionId: string;
+};
+
+const optionSelectionSchema = z.object({
+  componentId: z.string().min(1),
+  groupId: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
+  optionId: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
+}).strict();
 
 export class UniversalLayoutV2ValidationError extends Error {
   constructor(readonly code: string) {
@@ -147,6 +205,86 @@ function effectiveColumns(
   return columns;
 }
 
+function validateOptionGroupPolicy(policy: UniversalLayoutV2Policy): void {
+  const allowedCapabilities = new Set(policy.allowedCapabilities);
+  const idPattern = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+
+  for (const component of policy.components) {
+    const groupIds = new Set<string>();
+    for (const group of component.optionGroups ?? []) {
+      if (!idPattern.test(group.id) || groupIds.has(group.id) || group.options.length === 0) {
+        throw new UniversalLayoutV2ValidationError("INVALID_OPTION_POLICY");
+      }
+      groupIds.add(group.id);
+
+      const optionIds = new Set<string>();
+      for (const option of group.options) {
+        if (!idPattern.test(option.id) || optionIds.has(option.id)) {
+          throw new UniversalLayoutV2ValidationError("INVALID_OPTION_POLICY");
+        }
+        optionIds.add(option.id);
+        const required = option.requiresCapabilities ?? [];
+        const excluded = option.excludesCapabilities ?? [];
+        if (
+          new Set(required).size !== required.length ||
+          new Set(excluded).size !== excluded.length ||
+          required.some((capability) => !allowedCapabilities.has(capability)) ||
+          excluded.some((capability) => !allowedCapabilities.has(capability)) ||
+          required.some((capability) => excluded.includes(capability))
+        ) {
+          throw new UniversalLayoutV2ValidationError("INVALID_OPTION_POLICY");
+        }
+        const accessibilityOptions = option.accessibility;
+        if (accessibilityOptions) {
+          const allowedValues: Record<string, readonly string[]> = {
+            textScale: ["standard", "large", "extraLarge"],
+            buttonScale: ["standard", "large"],
+            contrast: ["standard", "high"],
+            viewportMode: ["none", "bottom-60", "bottom-70", "bottom-80"],
+          };
+          for (const [key, values] of Object.entries(accessibilityOptions)) {
+            if (
+              !values?.length ||
+              new Set(values).size !== values.length ||
+              values.some((value) => !allowedValues[key]?.includes(value))
+            ) {
+              throw new UniversalLayoutV2ValidationError("INVALID_OPTION_POLICY");
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function effectiveOptionGroups(
+  component: UniversalLayoutV2Policy["components"][number],
+  capabilities: readonly UniversalLayoutV2Capability[],
+  accessibility: UniversalLayoutV2Accessibility,
+): { id: string; optionIds: string[] }[] {
+  const activeCapabilities = new Set(capabilities);
+  const viewportMode: "none" | "bottom-60" | "bottom-70" | "bottom-80" = accessibility.viewportMode === null
+    ? "none"
+    : `bottom-${accessibility.viewportMode.heightPercent}`;
+  return (component.optionGroups ?? [])
+    .map((group) => ({
+      id: group.id,
+      optionIds: group.options
+        .filter((option) =>
+          (option.requiresCapabilities ?? []).every((capability) => activeCapabilities.has(capability)) &&
+          !(option.excludesCapabilities ?? []).some((capability) => activeCapabilities.has(capability)) &&
+          (!option.accessibility?.textScale || option.accessibility.textScale.includes(accessibility.textScale)) &&
+          (!option.accessibility?.buttonScale || option.accessibility.buttonScale.includes(accessibility.buttonScale)) &&
+          (!option.accessibility?.contrast || option.accessibility.contrast.includes(accessibility.contrast)) &&
+          (!option.accessibility?.viewportMode || option.accessibility.viewportMode.includes(viewportMode)),
+        )
+        .map((option) => option.id)
+        .sort(),
+    }))
+    .filter((group) => group.optionIds.length > 0)
+    .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+}
+
 function structureHash(model: Pick<UniversalLayoutV2Model, "hostId" | "screenId" | "structureVersion" | "components">) {
   return universalSha256({
     schemaVersion: UNIVERSAL_LAYOUT_V2_SCHEMA_VERSION,
@@ -170,8 +308,13 @@ function constraintHash(model: Pick<UniversalLayoutV2Model,
     layoutCapabilities: [...model.layoutCapabilities].sort(),
     allowedOperations: model.allowedOperations,
     components: [...model.components].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id)).map(
-      ({ id, operations, allowedColumns, minimumTouchTargetPx, protectedProperties }) => ({
-        id, operations, allowedColumns, minimumTouchTargetPx, protectedProperties,
+      ({ id, operations, allowedColumns, minimumTouchTargetPx, protectedProperties, optionGroups }) => ({
+        id,
+        operations,
+        allowedColumns,
+        minimumTouchTargetPx,
+        protectedProperties,
+        ...(optionGroups ? { optionGroups } : {}),
       }),
     ),
   });
@@ -186,6 +329,7 @@ export function createUniversalLayoutV2Model(
     componentState: readonly { id: string; itemCount: number; itemOrderHash: string }[];
   },
 ): UniversalLayoutV2Model {
+  validateOptionGroupPolicy(policy);
   if (!policy.components.length || new Set(policy.components.map((component) => component.id)).size !== policy.components.length ||
     new Set(policy.components.map((component) => component.order)).size !== policy.components.length ||
     new Set(input.componentState.map((state) => state.id)).size !== input.componentState.length ||
@@ -211,6 +355,7 @@ export function createUniversalLayoutV2Model(
     const allowedColumns = effectiveColumns(
       policy, component, input.viewportClass, input.accessibility, input.layoutCapabilities,
     );
+    const optionGroups = effectiveOptionGroups(component, input.layoutCapabilities, input.accessibility);
     if (!state || state.itemCount < component.itemCountRange[0] ||
       state.itemCount > component.itemCountRange[1] || !/^[a-f0-9]{64}$/.test(state.itemOrderHash) ||
       !allowedColumns.length) {
@@ -220,6 +365,7 @@ export function createUniversalLayoutV2Model(
       id: component.id, kind: component.kind, role: component.role, order: component.order,
       itemCount: state.itemCount, itemOrderHash: state.itemOrderHash,
       operations: [...component.operations], allowedColumns,
+      ...(optionGroups.length ? { optionGroups } : {}),
       minimumTouchTargetPx: component.minimumTouchTargetPx,
       protectedProperties: [...component.protectedProperties],
     };
@@ -280,7 +426,12 @@ export function validateUniversalLayoutV2Plan(
     plan.structureVersion !== model.structureVersion || plan.structureHash !== model.structureHash ||
     plan.constraintHash !== model.constraintHash || plan.viewportClass !== model.viewportClass
   ) throw new UniversalLayoutV2ValidationError("PLAN_MODEL_MISMATCH");
+  const targets = new Set<string>();
   for (const operation of plan.operations) {
+    if (targets.has(operation.targetId)) {
+      throw new UniversalLayoutV2ValidationError("CONFLICTING_OPERATION_TARGET");
+    }
+    targets.add(operation.targetId);
     const component = model.components.find((entry) => entry.id === operation.targetId);
     if (!component) throw new UniversalLayoutV2ValidationError("UNSUPPORTED_PLAN_OPERATION");
     if (!component.operations.includes(operation.type)) {
@@ -291,4 +442,27 @@ export function validateUniversalLayoutV2Plan(
     }
   }
   return plan;
+}
+
+/**
+ * Validates an internal choice against the policy-resolved option declarations.
+ * This is not an AI plan operation or a new wire-level plan schema.
+ */
+export function validateUniversalLayoutV2OptionSelection(
+  value: unknown,
+  modelValue: unknown,
+  policies: readonly UniversalLayoutV2Policy[],
+): UniversalLayoutV2OptionSelection {
+  const model = validateUniversalLayoutV2Model(modelValue, policies);
+  const selection = optionSelectionSchema.safeParse(value);
+  if (!selection.success) {
+    throw new UniversalLayoutV2ValidationError("INVALID_OPTION_SELECTION");
+  }
+
+  const component = model.components.find((entry) => entry.id === selection.data.componentId);
+  const group = component?.optionGroups?.find((entry) => entry.id === selection.data.groupId);
+  if (!group?.optionIds.includes(selection.data.optionId)) {
+    throw new UniversalLayoutV2ValidationError("UNSUPPORTED_OPTION_SELECTION");
+  }
+  return selection.data;
 }
