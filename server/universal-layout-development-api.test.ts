@@ -115,6 +115,8 @@ test("Development Universal API is opt-in, authenticated, host-restricted, and n
       .set("project-protection-bypass", "true")
       .send({ model: menuModel });
     assert.equal(bypassAttempt.status, 401);
+    assert.match(bypassAttempt.headers["content-type"], /^application\/json\b/);
+    assert.deepEqual(Object.keys(bypassAttempt.body), ["error"]);
 
     for (const model of [menuModel, civilModel]) {
       const response = await request(app)
@@ -122,6 +124,19 @@ test("Development Universal API is opt-in, authenticated, host-restricted, and n
         .set("Authorization", `Bearer ${serviceToken}`)
         .send({ model });
       assert.equal(response.status, 200);
+      assert.match(response.headers["content-type"], /^application\/json\b/);
+      assert.deepEqual(Object.keys(response.body).sort(), [
+        "constraintHash",
+        "contractVersion",
+        "hostId",
+        "operations",
+        "schemaVersion",
+        "screenId",
+        "structureHash",
+        "structureVersion",
+        "viewportClass",
+      ]);
+      assert.equal("model" in response.body, false);
       assert.equal(response.body.hostId, model.hostId);
       assert.equal(response.body.screenId, model.screenId);
       assert.equal(response.body.operations[0].type, "setColumns");
@@ -355,6 +370,23 @@ test("separate Development OpenAI route is opt-in and uses the shared fake provi
       .set("Authorization", `Bearer ${serviceToken}`)
       .send({ model });
     assert.equal(aiPlan.status, 200);
+    assert.match(aiPlan.headers["content-type"], /^application\/json\b/);
+    assert.deepEqual(Object.keys(aiPlan.body).sort(), [
+      "constraintHash",
+      "contractVersion",
+      "hostId",
+      "operations",
+      "schemaVersion",
+      "screenId",
+      "structureHash",
+      "structureVersion",
+      "viewportClass",
+    ]);
+    assert.equal("model" in aiPlan.body, false);
+    assert.equal(aiPlan.body.hostId, model.hostId);
+    assert.equal(aiPlan.body.screenId, model.screenId);
+    assert.equal(aiPlan.body.structureHash, model.structureHash);
+    assert.equal(aiPlan.body.constraintHash, model.constraintHash);
     assert.equal(aiPlan.body.operations[0].columns, 2);
 
     const regularMockPlan = await request(app)
@@ -362,6 +394,8 @@ test("separate Development OpenAI route is opt-in and uses the shared fake provi
       .set("Authorization", `Bearer ${serviceToken}`)
       .send({ model });
     assert.equal(regularMockPlan.status, 200);
+    assert.match(regularMockPlan.headers["content-type"], /^application\/json\b/);
+    assert.deepEqual(Object.keys(regularMockPlan.body).sort(), Object.keys(aiPlan.body).sort());
     assert.equal(regularMockPlan.body.operations[0].columns, 1);
   });
 
@@ -383,6 +417,8 @@ test("separate Development OpenAI route is opt-in and uses the shared fake provi
       .set("Authorization", `Bearer ${serviceToken}`)
       .send({ model });
     assert.equal(aiFailure.status, 502);
+    assert.match(aiFailure.headers["content-type"], /^application\/json\b/);
+    assert.deepEqual(Object.keys(aiFailure.body), ["error"]);
     assert.equal(JSON.stringify(aiFailure.body).includes("private provider failure detail"), false);
 
     const noAutomaticMockFallback = await request(app)
