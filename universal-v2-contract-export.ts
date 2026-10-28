@@ -43,7 +43,11 @@ export type {
  * policy reconstruction, hash equality, or cross-field uniqueness checks;
  * run the exported validators after schema parsing.
  */
-export const UNIVERSAL_LAYOUT_V2_MODEL_JSON_SCHEMA =
-  z.toJSONSchema(universalLayoutV2ModelSchema, { unrepresentable: "any" });
-export const UNIVERSAL_LAYOUT_V2_PLAN_JSON_SCHEMA =
-  z.toJSONSchema(universalLayoutV2PlanSchema, { unrepresentable: "any" });
+export const UNIVERSAL_LAYOUT_V2_MODEL_JSON_SCHEMA = z.toJSONSchema(
+  universalLayoutV2ModelSchema,
+  { unrepresentable: "any" },
+);
+export const UNIVERSAL_LAYOUT_V2_PLAN_JSON_SCHEMA = z.toJSONSchema(
+  universalLayoutV2PlanSchema,
+  { unrepresentable: "any" },
+);

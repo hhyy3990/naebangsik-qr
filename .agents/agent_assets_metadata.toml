@@ -56,3 +56,17 @@ mtime_ms = 1792856311251
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/d28c29be-df73-4c60-a1c9-d52fea5f2d17/957a0381-5677-4349-8d1b-556cec6573d3"
 storage_version_token = "1792856342872428"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "D9t0kTsBpVu07xOtnbw9B"
+uri = "file://universal-v2-host-integration.zip"
+type = "unspecified"
+title = "Universal v2 host integration files"
+description = "Five requested files bundled with their original root/server paths preserved."
+logical_id = "8fe4a186-800d-4c73-8d3f-12715822af87"
+content_hash = "sha256:327fb9090a829512042f4b2af2b5c566fe06a84664eb26436db0772ae264fd1d"
+size = 15007
+mtime_ms = 1793169940331
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:feb78e58-0e2f-4910-8eb8-288934546a0f/8fe4a186-800d-4c73-8d3f-12715822af87/e20b8d2a-8b33-4696-adfa-415d753ee2d6"
+storage_version_token = "1793169948195507"
+content_type = "application/octet-stream"
