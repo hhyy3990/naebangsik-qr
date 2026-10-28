@@ -9,6 +9,7 @@ import {
   validateUniversalLayoutV2Model,
   validateUniversalLayoutV2Plan,
   validateUniversalLayoutV2OptionSelection,
+  validateUniversalLayoutV2OptionSelections,
   type UniversalLayoutV2Accessibility,
   type UniversalLayoutV2Policy,
 } from "./universal-layout-contract-v2";
@@ -83,7 +84,20 @@ const optionCivilPolicy: UniversalLayoutV2Policy = {
     }],
   }],
 };
-const optionPolicies = [optionCivilPolicy, demoCoffeePolicy] as const;
+const optionDemoCoffeePolicy: UniversalLayoutV2Policy = {
+  ...demoCoffeePolicy,
+  components: [{
+    ...demoCoffeePolicy.components[0],
+    optionGroups: [{
+      id: "arrangement",
+      options: [
+        { id: "compact-grid", accessibility: { textScale: ["standard"] } },
+        { id: "large-text-list", accessibility: { textScale: ["large", "extraLarge"] } },
+      ],
+    }],
+  }],
+};
+const optionPolicies = [optionCivilPolicy, optionDemoCoffeePolicy] as const;
 
 const standardAccessibility = {
   textScale: "standard" as const,
@@ -117,6 +131,26 @@ function optionCivilModel(
     accessibility,
     layoutCapabilities,
     componentState: [{ id: "civil.certificate-grid", itemCount: 18, itemOrderHash }],
+  });
+}
+
+function fixtureOptionModel(
+  policy: UniversalLayoutV2Policy,
+  layoutCapabilities: readonly ("reserved-bottom-controls")[] = [],
+  accessibility: UniversalLayoutV2Accessibility = standardAccessibility,
+) {
+  return createUniversalLayoutV2Model(policy, {
+    viewportClass: "regular",
+    accessibility,
+    layoutCapabilities,
+    componentState: policy.components.map((component) => {
+      const itemCount = Math.max(12, component.itemCountRange[0]);
+      return {
+        id: component.id,
+        itemCount,
+        itemOrderHash: universalSha256({ fixture: component.id, itemCount }),
+      };
+    }),
   });
 }
 
@@ -395,5 +429,206 @@ test("plans for a different host are rejected", () => {
   assert.throws(
     () => validateUniversalLayoutV2Plan({ ...planFor(model, 1), hostId: "democoffee" }, model, policies),
     (error: unknown) => error instanceof UniversalLayoutV2ValidationError && error.code === "PLAN_MODEL_MISMATCH",
+  );
+});
+
+type FakeOptionResponse = {
+  basis: { structureHash: string; constraintHash: string };
+  selection: unknown;
+};
+
+function fakeOptionProvider(selection: unknown) {
+  return {
+    async choose(model: ReturnType<typeof fixtureOptionModel>): Promise<FakeOptionResponse> {
+      return {
+        basis: { structureHash: model.structureHash, constraintHash: model.constraintHash },
+        selection,
+      };
+    },
+  };
+}
+
+function validateFakeOptionResponse(
+  response: FakeOptionResponse,
+  currentModel: ReturnType<typeof fixtureOptionModel>,
+) {
+  if (
+    response.basis.structureHash !== currentModel.structureHash ||
+    response.basis.constraintHash !== currentModel.constraintHash
+  ) {
+    throw new UniversalLayoutV2ValidationError("STALE_FAKE_OPTION_RESULT");
+  }
+  return validateUniversalLayoutV2OptionSelection(response.selection, currentModel, optionPolicies);
+}
+
+test("test-only fake provider selects declared options for DemoCoffee and Civil; setColumns remains separate", async () => {
+  for (const policy of [optionDemoCoffeePolicy, optionCivilPolicy]) {
+    const model = validateUniversalLayoutV2Model(fixtureOptionModel(policy), optionPolicies);
+    const component = model.components[0];
+    const group = component.optionGroups?.[0];
+    if (!group || !group.optionIds.includes("compact-grid")) {
+      throw new Error("FAKE_FIXTURE_OPTION_MISSING");
+    }
+    const selection = {
+      componentId: component.id,
+      groupId: group.id,
+      optionId: "compact-grid",
+    };
+    const response = await fakeOptionProvider(selection).choose(model);
+    assert.deepEqual(validateFakeOptionResponse(response, model), selection);
+    assert.ok(group.optionIds.includes(selection.optionId));
+
+    const setColumnsPlan = {
+      schemaVersion: model.schemaVersion,
+      contractVersion: model.contractVersion,
+      hostId: model.hostId,
+      screenId: model.screenId,
+      structureVersion: model.structureVersion,
+      structureHash: model.structureHash,
+      constraintHash: model.constraintHash,
+      viewportClass: model.viewportClass,
+      operations: [{
+        type: "setColumns" as const,
+        targetId: component.id,
+        columns: component.allowedColumns[0],
+      }],
+    };
+    assert.doesNotThrow(() => validateUniversalLayoutV2Plan(setColumnsPlan, model, optionPolicies));
+  }
+});
+
+test("fake option selections reject unsupported, missing, extra, capability, accessibility, and footer-invalid choices", () => {
+  const standardCivil = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy),
+    optionPolicies,
+  );
+  const reservedCivil = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy, ["reserved-bottom-controls"]),
+    optionPolicies,
+  );
+  const largeTextCivil = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy, [], { ...standardAccessibility, textScale: "large" }),
+    optionPolicies,
+  );
+  const componentId = optionCivilPolicy.components[0].id;
+  const selection = (optionId: string) => ({
+    componentId,
+    groupId: "arrangement",
+    optionId,
+  });
+
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelection(selection("not-registered"), standardCivil, optionPolicies),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelection(
+      { componentId, groupId: "arrangement" },
+      standardCivil,
+      optionPolicies,
+    ),
+    /INVALID_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelection(
+      { ...selection("compact-grid"), css: "display:none" },
+      standardCivil,
+      optionPolicies,
+    ),
+    /INVALID_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelection(
+      selection("reserved-safe-list"),
+      standardCivil,
+      optionPolicies,
+    ),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelection(
+      selection("compact-grid"),
+      reservedCivil,
+      optionPolicies,
+    ),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.equal(
+    validateUniversalLayoutV2OptionSelection(
+      selection("reserved-safe-list"),
+      reservedCivil,
+      optionPolicies,
+    ).optionId,
+    "reserved-safe-list",
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelection(
+      selection("compact-grid"),
+      largeTextCivil,
+      optionPolicies,
+    ),
+    /UNSUPPORTED_OPTION_SELECTION/,
+  );
+  assert.equal(
+    validateUniversalLayoutV2OptionSelection(
+      selection("large-text-list"),
+      largeTextCivil,
+      optionPolicies,
+    ).optionId,
+    "large-text-list",
+  );
+});
+
+test("fake option results reject stale hashes and duplicate or conflicting selections", async () => {
+  const standard = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy),
+    optionPolicies,
+  );
+  const reserved = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy, ["reserved-bottom-controls"]),
+    optionPolicies,
+  );
+  const largeText = validateUniversalLayoutV2Model(
+    fixtureOptionModel(optionCivilPolicy, [], { ...standardAccessibility, textScale: "large" }),
+    optionPolicies,
+  );
+  const compactSelection = {
+    componentId: optionCivilPolicy.components[0].id,
+    groupId: "arrangement",
+    optionId: "compact-grid",
+  };
+  const response = await fakeOptionProvider(compactSelection).choose(standard);
+
+  assert.notEqual(standard.constraintHash, reserved.constraintHash);
+  assert.throws(
+    () => validateFakeOptionResponse(response, reserved),
+    /STALE_FAKE_OPTION_RESULT/,
+  );
+  assert.throws(
+    () => validateFakeOptionResponse(response, largeText),
+    /STALE_FAKE_OPTION_RESULT/,
+  );
+  assert.throws(
+    () => validateFakeOptionResponse({
+      ...response,
+      basis: { ...response.basis, constraintHash: "0".repeat(64) },
+    }, standard),
+    /STALE_FAKE_OPTION_RESULT/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelections(
+      [compactSelection, compactSelection],
+      standard,
+      optionPolicies,
+    ),
+    /DUPLICATE_OPTION_SELECTION/,
+  );
+  assert.throws(
+    () => validateUniversalLayoutV2OptionSelections(
+      [compactSelection, { ...compactSelection, optionId: "large-text-list" }],
+      standard,
+      optionPolicies,
+    ),
+    /CONFLICTING_OPTION_SELECTION/,
   );
 });

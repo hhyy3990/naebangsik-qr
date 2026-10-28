@@ -173,6 +173,7 @@ const optionSelectionSchema = z.object({
   groupId: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
   optionId: z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/),
 }).strict();
+const optionSelectionsSchema = z.array(optionSelectionSchema).min(1).max(100);
 
 export class UniversalLayoutV2ValidationError extends Error {
   constructor(readonly code: string) {
@@ -465,4 +466,42 @@ export function validateUniversalLayoutV2OptionSelection(
     throw new UniversalLayoutV2ValidationError("UNSUPPORTED_OPTION_SELECTION");
   }
   return selection.data;
+}
+
+/**
+ * Validates a set of internal option choices. A component/group can be chosen
+ * only once, so duplicate and conflicting choices cannot reach an applier.
+ * This is not a wire-level AI plan schema.
+ */
+export function validateUniversalLayoutV2OptionSelections(
+  value: unknown,
+  modelValue: unknown,
+  policies: readonly UniversalLayoutV2Policy[],
+): UniversalLayoutV2OptionSelection[] {
+  const model = validateUniversalLayoutV2Model(modelValue, policies);
+  const selections = optionSelectionsSchema.safeParse(value);
+  if (!selections.success) {
+    throw new UniversalLayoutV2ValidationError("INVALID_OPTION_SELECTIONS");
+  }
+
+  const selectedByGroup = new Map<string, string>();
+  for (const selection of selections.data) {
+    const groupKey = `${selection.componentId}\u0000${selection.groupId}`;
+    const existingOption = selectedByGroup.get(groupKey);
+    if (existingOption !== undefined) {
+      throw new UniversalLayoutV2ValidationError(
+        existingOption === selection.optionId
+          ? "DUPLICATE_OPTION_SELECTION"
+          : "CONFLICTING_OPTION_SELECTION",
+      );
+    }
+    selectedByGroup.set(groupKey, selection.optionId);
+
+    const component = model.components.find((entry) => entry.id === selection.componentId);
+    const group = component?.optionGroups?.find((entry) => entry.id === selection.groupId);
+    if (!group?.optionIds.includes(selection.optionId)) {
+      throw new UniversalLayoutV2ValidationError("UNSUPPORTED_OPTION_SELECTION");
+    }
+  }
+  return selections.data;
 }

@@ -1,6 +1,6 @@
 # Universal Layout Contract v2 — 범용 레이아웃 설계안
 
-**Status:** 설계안 및 local prototype. v2는 `setColumns`, `reserved-bottom-controls`, policy-owned option group 선언/접근성·capability 필터/해시 검증과 내부 option 선택 검증을 제공한다. 새 AI plan operation과 실제 preset 적용은 아직 제안 상태다. API route, provider, host, SDK, cache, Production 통합은 없다. 모든 AI 관련 스위치는 OFF로 유지한다.
+**Status:** 설계안 및 local prototype. v2는 `setColumns`, `reserved-bottom-controls`, policy-owned option group 선언/접근성·capability 필터/해시 검증과 단일·복수 내부 option 선택 검증을 제공한다. 테스트 전용 Fake provider로 검증하며, 새 AI plan operation과 실제 preset 적용은 아직 제안 상태다. API route, provider, host, SDK, cache, Production 통합은 없다. 모든 AI 관련 스위치는 OFF로 유지한다.
 
 ## Why v2 is separate
 
@@ -81,7 +81,8 @@ The requested SDK v0.5.31 and kiosk host source were not present in this workspa
 - cross-host plans rejected;
 - v1-shaped models/plans rejected by v2 validation;
 - policy-owned option groups are filtered by capability/accessibility, hash-bound, and validated by an internal selector without adding a wire-level AI operation;
-- unapproved plan operation names and duplicate targets are rejected.
+- unapproved plan operation names and duplicate targets are rejected;
+- test-only Fake option responses are checked against the model hashes and reject duplicate/conflicting selections.
 
 These are pure policy/validator mocks. They do not measure CSS, establish a real host's detection algorithm, or prove that a particular SDK preference matches physical layout.
 
@@ -203,7 +204,7 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 - operation 개수/중복 target 제한과 상호 조합 규칙을 확인한다. 권장 초기 규칙은 동일 component에 동일 operation을 두 번 허용하지 않고, 서로 덮어쓰는 조합은 명시적 policy 없이는 거부하는 것이다.
 - host는 적용 직전에 원본 model과 다시 검증하고, 화면 fingerprint가 바뀌었거나 capability/viewport가 바뀌면 결과를 버린다.
 
-현재 v2 plan validator는 columns와 capability effect를 확인한다. 추가로 내부 option selector는 등록 option ID와 accessibility/capability-filtered 목록만 검증한다. 이 선택기는 AI plan operation이 아니며 spacing, touch-target, arrangement, scroll preset의 적용 안전성은 아직 구현되어 있지 않다. host의 실제 렌더링·footer 위치를 중앙 validator가 증명할 수 없으므로 측정 실패 시 fail closed 해야 한다.
+현재 v2 plan validator는 columns와 capability effect를 확인한다. 내부 단일·복수 option validator는 등록 option ID와 accessibility/capability-filtered 목록을 확인하고 중복·충돌 선택을 거부한다. Fake provider와 hash-bound 결과 wrapper는 테스트 파일 안에서만 사용하며 제품 응답 계약이 아니다. 이 선택기는 AI plan operation이 아니며 spacing, touch-target, arrangement, scroll preset의 실제 적용 안전성은 아직 구현되어 있지 않다. host의 실제 렌더링·footer 위치를 중앙 validator가 증명할 수 없으므로 측정 실패 시 fail closed 해야 한다.
 
 ### 7. v1 호환성
 
@@ -225,7 +226,7 @@ AI에 전달하는 prompt payload는 검증된 모델에서 최소 정보만 추
 
 1. **계약 합의:** 아래 승인 결정사항, operation 표현, model 필드, privacy payload 경계를 확정한다.
 2. **공통 policy/option registry 확장:** 현재 구현된 option group/ID 기반에 승인된 preset metadata와 조합 규칙을 추가한다. 현재 구현은 accessibility/capability 필터링 및 선언된 option ID 검증까지만 제공한다.
-3. **validator-only prototype 확장:** 현재 `setColumns`, capability, option hash/selection 및 중복 target 검증을 바탕으로 golden vectors, accessibility 최소값, scroll/overlap 조건을 승인된 범위에서 검증한다.
+3. **validator-only prototype 확장:** 현재 `setColumns`, capability, option hash/selection, 중복·충돌 선택 및 stale Fake 결과 검증을 바탕으로 golden vectors, accessibility 최소값, scroll/overlap 조건을 승인된 범위에서 검증한다.
 4. **host conformance fixtures:** 업종에 독립적인 fixture로 capability unknown/measurement failure, resize 및 footer 상태 변화 규칙을 확인한다. 실제 host 변경은 별도 승인 후 진행한다.
 5. **v2 generator와 fake provider:** strict structured output과 공통 v2 validator만 연결하고 실제 네트워크 없이 검증한다.
 6. **Development integration 승인:** 별도 요청으로 Development route/provider를 추가한다. 기본 OFF, v1/Production 분리, service Bearer 인증 유지, 실패 시 기존 화면 유지.
