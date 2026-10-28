@@ -1,0 +1,74 @@
+{
+  "model": {
+    "schemaVersion": 2,
+    "contractVersion": "universal-layout.v2",
+    "hostId": "democoffee",
+    "screenId": "cafe.menu",
+    "structureVersion": "menu.v2",
+    "structureHash": "51616a81efd7fe21b9d215a697532924cacd3e37aff2c250af43d0944d910182",
+    "constraintHash": "6aabe7d629c36395e1cb12ec3b45085f077e8d8c445cdfbe676cc8fe0eed0d5e",
+    "viewportClass": "regular",
+    "accessibility": {
+      "textScale": "standard",
+      "buttonScale": "standard",
+      "contrast": "standard",
+      "viewportMode": null
+    },
+    "layoutCapabilities": [],
+    "components": [
+      {
+        "id": "menu.product-list",
+        "kind": "repeated-card-list",
+        "role": "ordered-menu-list",
+        "order": 0,
+        "itemCount": 12,
+        "itemOrderHash": "8b9d4fcffe21ae4acffd910e9fe5a695bf69551724a2ecab981946e1ef9a0eb8",
+        "operations": [
+          "setColumns",
+          "selectLayoutOption"
+        ],
+        "allowedColumns": [
+          1,
+          2
+        ],
+        "optionGroups": [
+          {
+            "id": "arrangement",
+            "optionIds": [
+              "compact-grid"
+            ]
+          }
+        ],
+        "minimumTouchTargetPx": 44,
+        "protectedProperties": [
+          "items",
+          "order",
+          "selection",
+          "actions"
+        ]
+      }
+    ],
+    "allowedOperations": [
+      "setColumns",
+      "selectLayoutOption"
+    ]
+  },
+  "plan": {
+    "schemaVersion": 2,
+    "contractVersion": "universal-layout.v2",
+    "hostId": "democoffee",
+    "screenId": "cafe.menu",
+    "structureVersion": "menu.v2",
+    "structureHash": "51616a81efd7fe21b9d215a697532924cacd3e37aff2c250af43d0944d910182",
+    "constraintHash": "6aabe7d629c36395e1cb12ec3b45085f077e8d8c445cdfbe676cc8fe0eed0d5e",
+    "viewportClass": "regular",
+    "operations": [
+      {
+        "type": "selectLayoutOption",
+        "targetId": "menu.product-list",
+        "groupId": "arrangement",
+        "optionId": "compact-grid"
+      }
+    ]
+  }
+}

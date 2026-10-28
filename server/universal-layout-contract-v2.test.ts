@@ -20,6 +20,9 @@ import {
   generateUniversalLayoutV2Plan,
   type UniversalLayoutV2PromptPayload,
 } from "./universal-layout-generator-v2";
+import {
+  DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY as optionDemoCoffeePolicy,
+} from "./universal-v2-conformance-fixtures";
 
 const civilPolicy: UniversalLayoutV2Policy = {
   hostId: "civil-kiosk-mock",
@@ -85,19 +88,6 @@ const optionCivilPolicy: UniversalLayoutV2Policy = {
           accessibility: { textScale: ["standard"] },
         },
         { id: "reserved-safe-list", requiresCapabilities: ["reserved-bottom-controls"] },
-        { id: "large-text-list", accessibility: { textScale: ["large", "extraLarge"] } },
-      ],
-    }],
-  }],
-};
-const optionDemoCoffeePolicy: UniversalLayoutV2Policy = {
-  ...demoCoffeePolicy,
-  components: [{
-    ...demoCoffeePolicy.components[0],
-    optionGroups: [{
-      id: "arrangement",
-      options: [
-        { id: "compact-grid", accessibility: { textScale: ["standard"] } },
         { id: "large-text-list", accessibility: { textScale: ["large", "extraLarge"] } },
       ],
     }],

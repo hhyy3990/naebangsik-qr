@@ -125,8 +125,12 @@ const planSchema = z.object({
 }).strict();
 
 export type UniversalLayoutV2Model = z.infer<typeof modelSchema>;
+export type UniversalLayoutV2Component = UniversalLayoutV2Model["components"][number];
 export type UniversalLayoutV2Plan = z.infer<typeof planSchema>;
+export type UniversalLayoutV2Operation = UniversalLayoutV2Plan["operations"][number];
 export type UniversalLayoutV2Accessibility = z.infer<typeof accessSchema>;
+export const universalLayoutV2ModelSchema = modelSchema;
+export const universalLayoutV2PlanSchema = planSchema;
 
 export type UniversalLayoutV2Policy = {
   hostId: string;
@@ -333,6 +337,19 @@ function constraintHash(model: Pick<UniversalLayoutV2Model,
       }),
     ),
   });
+}
+
+export function computeUniversalLayoutV2StructureHash(
+  model: Pick<UniversalLayoutV2Model, "hostId" | "screenId" | "structureVersion" | "components">,
+): string {
+  return structureHash(model);
+}
+
+export function computeUniversalLayoutV2ConstraintHash(
+  model: Pick<UniversalLayoutV2Model,
+    "viewportClass" | "accessibility" | "layoutCapabilities" | "components" | "allowedOperations">,
+): string {
+  return constraintHash(model);
 }
 
 export function createUniversalLayoutV2Model(
