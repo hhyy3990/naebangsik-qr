@@ -14,3 +14,9 @@ For central AI-layout diagnostics, log only a random request ID, controlled stag
 **Why:** Cross-app failures need stage-level evidence without turning diagnostic logs into a source of credentials or user data.
 
 **How to apply:** Add diagnostics at the central endpoint and provider adapter, expose the random request ID as a response header for relay correlation, and use mocked providers for tests.
+
+The v2 Development Fake API has its own opt-in (`UNIVERSAL_LAYOUT_DEV_V2_FAKE_API=true`) in addition to `NODE_ENV=development`; it is off by default, uses the existing service Bearer and v2 registry/validator, and never invokes a network provider. Keep this flag separate from OpenAI opt-in.
+
+**Why:** Local conformance testing must not activate real AI or change the existing v1 Mock/OpenAI route behavior.
+
+**How to apply:** Keep new fake-only routes explicitly gated, validate host models and plans with the shared v2 registry and generator, and do not add provider fallback or Production registration.

@@ -40,6 +40,22 @@ import {
 import { UNIVERSAL_LAYOUT_MOCK_POLICIES } from "./universal-layout-mock-policies";
 import { universalLayoutDevelopmentMockProvider, universalLayoutDevelopmentRequestSchema } from "./universal-layout-development-mock";
 import { createUniversalLayoutOpenAIProvider } from "./universal-layout-openai-provider";
+import {
+  generateUniversalLayoutV2Plan,
+  UniversalLayoutV2GenerationError,
+  type UniversalLayoutV2PlanProvider,
+} from "./universal-layout-generator-v2";
+import {
+  resolveDevelopmentUniversalLayoutV2Registration,
+  validateDevelopmentUniversalLayoutV2Model,
+  validateDevelopmentUniversalLayoutV2Plan,
+  DevelopmentUniversalLayoutV2RegistryError,
+} from "./universal-layout-v2-development-registry";
+import {
+  UniversalLayoutV2ValidationError,
+  universalLayoutV2ModelSchema,
+} from "./universal-layout-contract-v2";
+import { universalLayoutV2DevelopmentFakeProvider } from "./universal-layout-v2-development-fake-provider";
 
 const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -305,6 +321,7 @@ export function createApp(
     ) => Promise<DemoOptionsPlan>;
     demoOptionsPolicies?: typeof registeredDemoOptionsPolicies;
     universalLayoutOpenAIProvider?: UniversalLayoutPlanProvider;
+    universalLayoutV2FakeProvider?: UniversalLayoutV2PlanProvider;
     maxRequestsPerHost?: number;
   } = {},
 ) {
@@ -331,6 +348,9 @@ export function createApp(
     process.env.NODE_ENV === "development" &&
     process.env.UNIVERSAL_LAYOUT_DEV_MOCK_API === "true" &&
     process.env.UNIVERSAL_LAYOUT_DEV_OPENAI_PROVIDER === "true";
+  const universalDevV2FakeEnabled =
+    process.env.NODE_ENV === "development" &&
+    process.env.UNIVERSAL_LAYOUT_DEV_V2_FAKE_API === "true";
 
   app.disable("x-powered-by");
   if (universalDevMockEnabled) {
@@ -488,6 +508,54 @@ export function createApp(
             : "GENERATION_FAILED";
         const status = code === "INVALID_MODEL" ? 400 : code === "AI_NOT_CONFIGURED" ? 503 : 502;
         return fail(res, status, code);
+      }
+    }));
+  }
+
+  if (universalDevV2FakeEnabled) {
+    app.post("/api/dev/universal-layout/v2/fake-plan", asyncRoute(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
+      if (!expectedToken) return fail(res, 503, "SERVICE_NOT_CONFIGURED");
+
+      const authorization = req.get("authorization") ?? "";
+      const match = /^Bearer ([^\s]+)$/.exec(authorization);
+      const expectedBuffer = Buffer.from(expectedToken);
+      const providedBuffer = Buffer.from(match?.[1] ?? "");
+      const authorized = expectedBuffer.length === providedBuffer.length &&
+        timingSafeEqual(expectedBuffer, providedBuffer);
+      if (!authorized) return fail(res, 401, "AUTH_REQUIRED");
+
+      const parsed = z.object({ model: universalLayoutV2ModelSchema }).strict().safeParse(req.body);
+      if (!parsed.success) return fail(res, 400, "INVALID_REQUEST");
+
+      try {
+        const model = validateDevelopmentUniversalLayoutV2Model(parsed.data.model);
+        const registration = resolveDevelopmentUniversalLayoutV2Registration(
+          model.hostId,
+          model.screenId,
+        );
+        const plan = await generateUniversalLayoutV2Plan({
+          model,
+          policies: [registration.policy],
+          provider: layoutOptions.universalLayoutV2FakeProvider ??
+            universalLayoutV2DevelopmentFakeProvider,
+        });
+        return res.json(validateDevelopmentUniversalLayoutV2Plan(plan, model));
+      } catch (error) {
+        if (error instanceof DevelopmentUniversalLayoutV2RegistryError) {
+          const status = error.code === "UNREGISTERED_HOST_SCREEN" ||
+            error.code === "UNREGISTERED_STRUCTURE_VERSION" ? 404 : 400;
+          return fail(res, status, error.code);
+        }
+        if (error instanceof UniversalLayoutV2ValidationError) {
+          return fail(res, 400, error.code);
+        }
+        if (error instanceof UniversalLayoutV2GenerationError) {
+          const status = error.code === "INVALID_MODEL" ? 400 : 502;
+          return fail(res, status, error.validationCode ?? error.code);
+        }
+        return fail(res, 502, "GENERATION_FAILED");
       }
     }));
   }
