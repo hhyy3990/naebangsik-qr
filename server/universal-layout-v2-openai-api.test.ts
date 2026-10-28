@@ -8,6 +8,7 @@ import {
   createUniversalLayoutV2Model,
   type UniversalLayoutV2Accessibility,
 } from "./universal-layout-contract-v2";
+import { createUniversalLayoutV2PlanJsonSchema } from "./universal-layout-generator-v2";
 import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator-v2";
 import { UniversalLayoutV2OpenAIRequestGuard } from "./universal-layout-v2-openai-request-guard";
 import {
@@ -158,9 +159,12 @@ test("v2 OpenAI adapter's strict JSON response passes the shared validator in-pr
     assert.equal(response.status, 200);
     assert.equal(response.body.operations[0].type, "selectLayoutOption");
     assert.equal(response.body.operations[0].optionId, "compact-grid");
-    const text = captured?.text as { format?: { type?: string; strict?: boolean } } | undefined;
+    const text = captured?.text as {
+      format?: { type?: string; strict?: boolean; schema?: unknown };
+    } | undefined;
     assert.equal(text?.format?.type, "json_schema");
     assert.equal(text?.format?.strict, true);
+    assert.deepEqual(text?.format?.schema, createUniversalLayoutV2PlanJsonSchema(model));
   });
 });
 

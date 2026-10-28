@@ -830,9 +830,9 @@ test("v2 generator runs model through test-only Fake provider, strict schema, an
         responseSchema: { properties: Record<string, unknown> };
       }) {
         const componentSchema = responseSchema.properties.operations as {
-          items: { oneOf?: Array<{ properties?: Record<string, { enum?: string[] }> }> };
+          items: { anyOf?: Array<{ properties?: Record<string, { enum?: string[] }> }> };
         };
-        assert.ok(componentSchema.items.oneOf?.some((variant) =>
+        assert.ok(componentSchema.items.anyOf?.some((variant) =>
           variant.properties?.optionId?.enum?.includes(scenario.optionId),
         ));
         assert.equal("itemCount" in payload.components[0], false);

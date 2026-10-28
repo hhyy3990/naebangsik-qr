@@ -122,7 +122,7 @@ export function createUniversalLayoutV2PlanJsonSchema(
         maxItems: 20,
         items: operationVariants.length === 1
           ? operationVariants[0]
-          : { oneOf: operationVariants },
+          : { anyOf: operationVariants },
       },
     },
   };
