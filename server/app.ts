@@ -681,7 +681,10 @@ export function createApp(
               responseSchema: createUniversalLayoutV2SingleOptionPlanJsonSchema(
                 model,
                 registration.componentId,
-                registration.optionIds[0],
+                model.components
+                  .find((component) => component.id === registration.componentId)
+                  ?.optionGroups?.find((group) => group.id === "arrangement")
+                  ?.optionIds[0] ?? "",
               ),
               systemInstruction: UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
             });

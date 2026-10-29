@@ -35,20 +35,50 @@ function makeDemoModel() {
   });
 }
 
-function makeCivilModel(withReservedControls = true) {
+function makeDemoGModel(viewportClass: "compact" | "regular") {
+  return createUniversalLayoutV2Model(DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY, {
+    viewportClass,
+    accessibility: {
+      textScale: "large",
+      buttonScale: "large",
+      contrast: "high",
+      viewportMode: { mode: "bottom", heightPercent: 70 },
+    },
+    layoutCapabilities: [],
+    componentState: [{
+      id: "menu.product-list",
+      itemCount: 5,
+      itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
+    }],
+  });
+}
+
+function makeCivilModel(
+  withReservedControls = true,
+  accessibility: UniversalLayoutV2Accessibility = standardAccessibility,
+) {
   const orderedItemIds = Array.from(
     { length: 18 },
     (_, index) => `civil.certificate.${String(index + 1).padStart(2, "0")}`,
   );
   return createUniversalLayoutV2Model(CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY, {
     viewportClass: "wide",
-    accessibility: standardAccessibility,
+    accessibility,
     layoutCapabilities: withReservedControls ? ["reserved-bottom-controls"] : [],
     componentState: [{
       id: "civil.certificate-grid",
       itemCount: 18,
       itemOrderHash: universalSha256({ orderedItemIds }),
     }],
+  });
+}
+
+function makeCivilGModel() {
+  return makeCivilModel(true, {
+    textScale: "large",
+    buttonScale: "large",
+    contrast: "high",
+    viewportMode: { mode: "bottom", heightPercent: 70 },
   });
 }
 
@@ -98,7 +128,10 @@ function parseV2DiagnosticEvents(lines: string[]) {
 
 test("v2 Development Fake API is opt-in, bearer-authenticated, and returns validated host options", async () => {
   const demo = makeDemoModel();
+  const demoGCompact = makeDemoGModel("compact");
+  const demoGRegular = makeDemoGModel("regular");
   const civil = makeCivilModel();
+  const civilG = makeCivilGModel();
   assert.equal(demo.structureHash, "c4e004d4df6fd7f4b0084b0b83569667239cd81284519d46108ad5921dd5cc4e");
   assert.equal(civil.structureHash, "5ee50fd98eb1ba357232fbc21a39c78b1721925491635b9943a7027cab4eed0b");
 
@@ -122,7 +155,10 @@ test("v2 Development Fake API is opt-in, bearer-authenticated, and returns valid
 
     for (const [model, expectedOption] of [
       [demo, "compact-grid"],
+      [demoGCompact, "single-column-list"],
+      [demoGRegular, "single-column-list"],
       [civil, "reserved-safe-list"],
+      [civilG, "reserved-safe-list"],
     ] as const) {
       const response = await request(app)
         .post(route)
@@ -141,6 +177,26 @@ test("v2 Development Fake API is opt-in, bearer-authenticated, and returns valid
         optionId: expectedOption,
       }]);
     }
+
+    const unsupportedMixedProfile = createUniversalLayoutV2Model(
+      DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
+      {
+        viewportClass: "regular",
+        accessibility: { ...standardAccessibility, contrast: "high" },
+        layoutCapabilities: [],
+        componentState: [{
+          id: "menu.product-list",
+          itemCount: 5,
+          itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
+        }],
+      },
+    );
+    const rejectedProfile = await request(app)
+      .post(route)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ model: unsupportedMixedProfile });
+    assert.equal(rejectedProfile.status, 400);
+    assert.deepEqual(rejectedProfile.body, { error: "UNSUPPORTED_ACCESSIBILITY_PROFILE" });
   });
 });
 
@@ -308,8 +364,8 @@ test("v2 Development Fake API rejects unregistered hosts, stale hashes, and capa
     });
     const capabilityViolation = await request(capabilityApp)
       .post(route).set(auth).send({ model: civilWithoutReservedControls });
-    assert.equal(capabilityViolation.status, 502);
-    assert.equal(capabilityViolation.body.error, "UNSUPPORTED_PLAN_OPERATION");
+    assert.equal(capabilityViolation.status, 400);
+    assert.equal(capabilityViolation.body.error, "UNSUPPORTED_LAYOUT_CAPABILITY");
   });
 });
 

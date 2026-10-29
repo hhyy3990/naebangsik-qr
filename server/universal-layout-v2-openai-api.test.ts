@@ -62,6 +62,45 @@ function civilModel() {
   });
 }
 
+function demoGModel(viewportClass: "compact" | "regular" = "regular") {
+  return createUniversalLayoutV2Model(DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY, {
+    viewportClass,
+    accessibility: {
+      textScale: "large",
+      buttonScale: "large",
+      contrast: "high",
+      viewportMode: { mode: "bottom", heightPercent: 70 },
+    },
+    layoutCapabilities: [],
+    componentState: [{
+      id: "menu.product-list",
+      itemCount: 5,
+      itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
+    }],
+  });
+}
+
+function civilGModel() {
+  return createUniversalLayoutV2Model(CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY, {
+    viewportClass: "wide",
+    accessibility: {
+      textScale: "large",
+      buttonScale: "large",
+      contrast: "high",
+      viewportMode: { mode: "bottom", heightPercent: 70 },
+    },
+    layoutCapabilities: ["reserved-bottom-controls"],
+    componentState: [{
+      id: "civil.certificate-grid",
+      itemCount: 18,
+      itemOrderHash: universalSha256({
+        orderedItemIds: Array.from({ length: 18 }, (_, index) =>
+          `civil.certificate.${String(index + 1).padStart(2, "0")}`),
+      }),
+    }],
+  });
+}
+
 async function withEnvironment<T>(
   values: Record<string, string | undefined>,
   run: () => Promise<T>,
@@ -191,7 +230,7 @@ test("v2 OpenAI route is independently Development-gated and returns scoped, val
     UNIVERSAL_LAYOUT_DEV_MOCK_API: undefined,
     UNIVERSAL_LAYOUT_DEV_V2_FAKE_API: undefined,
   }, async () => {
-    for (const model of [demoModel(), civilModel()]) {
+    for (const model of [demoModel(), demoGModel("compact"), demoGModel(), civilModel(), civilGModel()]) {
       const calls = { calls: 0 };
       const response = await request(testApp(planProvider(calls)))
         .post(route)
@@ -229,8 +268,24 @@ test("v2 OpenAI route rejects unsupported scope and stale models before provider
       }],
     });
     const outOfScope = await request(app).post(route).set(auth).send({ model: largeText });
-    assert.equal(outOfScope.status, 403);
-    assert.equal(outOfScope.body.error, "V2_OPENAI_SCOPE_REJECTED");
+    assert.equal(outOfScope.status, 400);
+    assert.equal(outOfScope.body.error, "UNSUPPORTED_ACCESSIBILITY_PROFILE");
+
+    const unsupportedGVariant = createUniversalLayoutV2Model(DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY, {
+      viewportClass: "regular",
+      accessibility: { ...standardAccessibility, contrast: "high" },
+      layoutCapabilities: [],
+      componentState: [{
+        id: "menu.product-list",
+        itemCount: 5,
+        itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
+      }],
+    });
+    const unsupportedProfileResponse = await request(app).post(route).set(auth).send({
+      model: unsupportedGVariant,
+    });
+    assert.equal(unsupportedProfileResponse.status, 400);
+    assert.equal(unsupportedProfileResponse.body.error, "UNSUPPORTED_ACCESSIBILITY_PROFILE");
 
     const unknownHost = await request(app).post(route).set(auth).send({
       model: { ...demoModel(), hostId: "unknown-host" },

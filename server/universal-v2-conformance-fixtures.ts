@@ -102,13 +102,26 @@ export const DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY: UniversalLayoutV2Policy = {
     operations: ["setColumns"],
     optionGroups: [{
       id: "arrangement",
-      options: [{
-        id: "compact-grid",
-        accessibility: {
-          textScale: ["standard"],
-          buttonScale: ["standard"],
+      options: [
+        {
+          id: "compact-grid",
+          accessibility: {
+            textScale: ["standard"],
+            buttonScale: ["standard"],
+            contrast: ["standard"],
+            viewportMode: ["none"],
+          },
         },
-      }],
+        {
+          id: "single-column-list",
+          accessibility: {
+            textScale: ["large"],
+            buttonScale: ["large"],
+            contrast: ["high"],
+            viewportMode: ["bottom-70"],
+          },
+        },
+      ],
     }],
     minimumTouchTargetPx: 44,
     protectedProperties: ["items", "order", "selection", "actions"],
@@ -147,6 +160,12 @@ export const CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY: UniversalLayoutV2Policy = {
       options: [{
         id: "reserved-safe-list",
         requiresCapabilities: ["reserved-bottom-controls"],
+        accessibility: {
+          textScale: ["standard", "large"],
+          buttonScale: ["standard", "large"],
+          contrast: ["standard", "high"],
+          viewportMode: ["none", "bottom-70"],
+        },
       }],
     }],
     minimumTouchTargetPx: 44,

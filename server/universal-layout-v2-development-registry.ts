@@ -13,6 +13,7 @@ import {
   DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
   DEMO_COFFEE_UNIVERSAL_V2_CONFORMANCE_POLICY,
 } from "./universal-v2-conformance-fixtures";
+import { getUniversalLayoutV2PilotProfile } from "./universal-layout-v2-pilot-profiles";
 
 export type DevelopmentUniversalLayoutV2Registration = {
   readonly hostLabel: "DemoCoffee" | "Civil" | "Civil mock fixture";
@@ -35,7 +36,7 @@ const DEVELOPMENT_REGISTRY: readonly DevelopmentUniversalLayoutV2Registration[] 
     screenId: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.screenId,
     structureVersion: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.structureVersion,
     componentId: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.components[0].id,
-    optionIds: ["compact-grid"],
+    optionIds: ["compact-grid", "single-column-list"],
     policyEvidence: "host-development-snapshot-validated",
     hostPolicyVerified: false,
     policy: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
@@ -121,6 +122,22 @@ export function validateDevelopmentUniversalLayoutV2Model(
   );
   if (candidate.structureVersion !== registration.structureVersion) {
     throw new DevelopmentUniversalLayoutV2RegistryError("UNREGISTERED_STRUCTURE_VERSION");
+  }
+  if (registration.policyEvidence === "host-development-snapshot-validated") {
+    if (!getUniversalLayoutV2PilotProfile(candidate.accessibility)) {
+      throw new DevelopmentUniversalLayoutV2RegistryError("UNSUPPORTED_ACCESSIBILITY_PROFILE");
+    }
+    if (candidate.hostId === "democoffee" && candidate.layoutCapabilities.length !== 0) {
+      throw new DevelopmentUniversalLayoutV2RegistryError("UNSUPPORTED_LAYOUT_CAPABILITY");
+    }
+    if (
+      candidate.hostId === "civil-kiosk-development-test" &&
+      (candidate.viewportClass !== "wide" ||
+        candidate.layoutCapabilities.length !== 1 ||
+        candidate.layoutCapabilities[0] !== "reserved-bottom-controls")
+    ) {
+      throw new DevelopmentUniversalLayoutV2RegistryError("UNSUPPORTED_LAYOUT_CAPABILITY");
+    }
   }
   return validateUniversalLayoutV2Model(candidate, [registration.policy]);
 }
