@@ -9,11 +9,11 @@ The user says the central “내 방식 QR” service is being prepared for real
 
 **How to apply:** Keep approved integration tests in Development. Do not infer that mocked SDK tests prove a live central-service connection.
 
-The demo coffee and unattended civil-service kiosk projects are separate Replit projects, each reported by the user to use SDK v0.5.27. Previous profile tests used mocked API responses; actual central-service integration has not been verified from this workspace.
+The user currently reports DemoCoffee uses SDK v0.5.31 local source and Civil uses the v0.5.31 package; both reportedly pass fake schemaVersion 5 parsing. These host details are not independently verifiable from the central workspace. Real Production QR-to-host application is still failing and its failure stage is unlocalized.
 
-**Why:** The user supplied these current project details and asked that unsupported kiosk behavior not be claimed as available.
+**Why:** The user supplied updated host-version and fake-v5 test results and explicitly asked not to assume an SDK-version mismatch; the Production symptom has not been tied to a specific stage.
 
-**How to apply:** Inspect both consumer projects before asserting endpoint or response compatibility. If connection changes are needed, report the exact project, code, and reason and wait for approval.
+**How to apply:** Treat host versions and fake-v5 results as user-reported until inspected. Do not treat older SDK artifacts in the central workspace as proof of host runtime. Use sanitized status/content-type evidence before locating a Production relay failure; do not change Production without approval.
 
 The user reports that Demo Coffee accepts official QR links only from the Production origin, its browser calls its own same-origin `POST /api/qr-profile`, and its server relays to the central Production `POST /api/profiles/resolve`; in that architecture browser CORS is not a blocker. This relay path has not been independently inspected.
 
