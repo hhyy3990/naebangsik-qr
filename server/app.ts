@@ -71,6 +71,12 @@ import {
   universalLayoutV2ModelSchema,
 } from "./universal-layout-contract-v2";
 import { universalLayoutV2DevelopmentFakeProvider } from "./universal-layout-v2-development-fake-provider";
+import {
+  PostgresProductionV2RequestStore,
+  registerProductionV2Route,
+  type ProductionV2Registration,
+  type ProductionV2RequestStore,
+} from "./universal-layout-v2-production";
 
 const legacyPreferenceFields = {
   textSize: z.enum(["standard", "large", "extraLarge"]),
@@ -396,6 +402,9 @@ export function createApp(
     universalLayoutV2FakeProvider?: UniversalLayoutV2PlanProvider;
     universalLayoutV2OpenAIProvider?: UniversalLayoutV2PlanProvider;
     universalLayoutV2OpenAIRequestGuard?: UniversalLayoutV2OpenAIRequestGuard;
+    productionV2Provider?: UniversalLayoutV2PlanProvider;
+    productionV2RequestStore?: ProductionV2RequestStore;
+    productionV2Registry?: readonly ProductionV2Registration[];
     maxRequestsPerHost?: number;
   } = {},
 ) {
@@ -471,6 +480,16 @@ export function createApp(
     next();
   });
   app.use(express.json({ limit: "16kb" }));
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER === "true"
+  ) {
+    registerProductionV2Route(app, {
+      store: layoutOptions.productionV2RequestStore ?? new PostgresProductionV2RequestStore(pool),
+      ...(layoutOptions.productionV2Provider ? { provider: layoutOptions.productionV2Provider } : {}),
+      ...(layoutOptions.productionV2Registry ? { registry: layoutOptions.productionV2Registry } : {}),
+    });
+  }
   app.param("id", (req, res, next, id) => {
     if (!z.string().uuid().safeParse(id).success) return fail(res, 400, "프로필 번호를 확인해 주세요.");
     next();
