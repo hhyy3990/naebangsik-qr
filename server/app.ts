@@ -227,17 +227,23 @@ function logUniversalV2OpenAIDiagnostic(
   stage: string,
   outcome: string,
   fields: {
+    elapsedMs: number;
+    openaiAttempted: boolean;
     statusCode?: number;
-    openaiAttempted?: boolean;
-    providerDiagnostic?: UniversalLayoutV2OpenAIDiagnostic;
-    failureStage?: string;
-  } = {},
+    errorCode?: string;
+    hostId?: string;
+    screenId?: string;
+    providerFailureCategory?: UniversalLayoutV2OpenAIDiagnostic["errorCategory"];
+    providerHttpStatus?: number | null;
+    providerTimedOut?: boolean;
+  },
 ): void {
   if (process.env.NODE_ENV !== "development") return;
   try {
     console.info(JSON.stringify({
-      event: `universal_v2_openai_${stage}`,
+      event: "universal_v2_openai_diagnostic",
       requestId,
+      stage,
       outcome,
       ...fields,
     }));
@@ -586,30 +592,60 @@ export function createApp(
   if (universalDevV2OpenAIEnabled) {
     app.post("/api/dev/universal-layout/v2/openai-plan", asyncRoute(async (req, res) => {
       const requestId = randomUUID();
+      const startedAt = Date.now();
       let openaiAttempted = false;
-        const log = (
-          stage: string,
-          outcome: string,
-          statusCode?: number,
-          providerDiagnostic?: UniversalLayoutV2OpenAIDiagnostic,
-          failureStage?: string,
-        ) =>
+      let responseErrorCode: string | undefined;
+      let hostId: string | undefined;
+      let screenId: string | undefined;
+      let providerDiagnostic: UniversalLayoutV2OpenAIDiagnostic | undefined;
+      const log = (
+        stage: string,
+        outcome: string,
+        fields: {
+          statusCode?: number;
+          errorCode?: string;
+          hostId?: string;
+          screenId?: string;
+          providerFailureCategory?: UniversalLayoutV2OpenAIDiagnostic["errorCategory"];
+          providerHttpStatus?: number | null;
+          providerTimedOut?: boolean;
+        } = {},
+      ) =>
         logUniversalV2OpenAIDiagnostic(requestId, stage, outcome, {
-          ...(statusCode === undefined ? {} : { statusCode }),
+          elapsedMs: Math.max(0, Date.now() - startedAt),
           openaiAttempted,
-            ...(providerDiagnostic ? { providerDiagnostic } : {}),
-            ...(failureStage ? { failureStage } : {}),
+          ...(hostId ? { hostId } : {}),
+          ...(screenId ? { screenId } : {}),
+          ...fields,
         });
       const respondWithError = (status: number, code: string) => {
-        log("response", "completed", status);
+        responseErrorCode = code;
         return fail(res, status, code);
       };
 
+      res.setHeader("X-Request-ID", requestId);
       res.setHeader("Cache-Control", "no-store");
-      log("request_entered", "reached");
+      res.once("finish", () => {
+        log("response_sent", "completed", {
+          statusCode: res.statusCode,
+          ...(responseErrorCode ? { errorCode: responseErrorCode } : {}),
+        });
+      });
+      res.once("close", () => {
+        if (!res.writableEnded) {
+          log("connection_closed", "incomplete", {
+            statusCode: res.statusCode,
+            ...(responseErrorCode ? { errorCode: responseErrorCode } : {}),
+          });
+        }
+      });
+      log("request_received", "reached");
       const expectedToken = layoutOptions.serviceToken ?? process.env.AI_LAYOUT_SERVICE_TOKEN?.trim();
       if (!expectedToken) {
-        log("authentication", "failed");
+        log("auth_rejected", "rejected", {
+          statusCode: 503,
+          errorCode: "SERVICE_NOT_CONFIGURED",
+        });
         return respondWithError(503, "SERVICE_NOT_CONFIGURED");
       }
 
@@ -619,12 +655,24 @@ export function createApp(
       const providedBuffer = Buffer.from(match?.[1] ?? "");
       const authorized = expectedBuffer.length === providedBuffer.length &&
         timingSafeEqual(expectedBuffer, providedBuffer);
-      log("authentication", authorized ? "passed" : "failed");
-      if (!authorized) return respondWithError(401, "AUTH_REQUIRED");
+      if (!authorized) {
+        log("auth_rejected", "rejected", {
+          statusCode: 401,
+          errorCode: "AUTH_REQUIRED",
+        });
+        return respondWithError(401, "AUTH_REQUIRED");
+      }
+      log("auth_passed", "passed");
 
       const parsed = z.object({ model: universalLayoutV2ModelSchema }).strict().safeParse(req.body);
-      log("model_schema_validation", parsed.success ? "passed" : "failed");
-      if (!parsed.success) return respondWithError(400, "INVALID_REQUEST");
+      if (!parsed.success) {
+        log("schema_rejected", "rejected", {
+          statusCode: 400,
+          errorCode: "INVALID_REQUEST",
+        });
+        return respondWithError(400, "INVALID_REQUEST");
+      }
+      log("schema_passed", "passed");
 
       let model: ReturnType<typeof validateDevelopmentUniversalLayoutV2Model>;
       let registration: ReturnType<typeof resolveDevelopmentUniversalLayoutV2Registration>;
@@ -634,38 +682,48 @@ export function createApp(
           parsed.data.model.screenId,
         );
         model = validateDevelopmentUniversalLayoutV2Model(parsed.data.model);
-        log("registry_validation", "passed");
       } catch (error) {
-        log("registry_validation", "failed");
         if (error instanceof DevelopmentUniversalLayoutV2RegistryError) {
           const status = error.code === "UNREGISTERED_HOST_SCREEN" ||
             error.code === "UNREGISTERED_STRUCTURE_VERSION" ? 404 : 400;
+          log("scope_rejected", "rejected", { statusCode: status, errorCode: error.code });
           return respondWithError(status, error.code);
         }
         if (error instanceof UniversalLayoutV2ValidationError) {
+          log("scope_rejected", "rejected", { statusCode: 400, errorCode: error.code });
           return respondWithError(400, error.code);
         }
+        log("scope_rejected", "rejected", { statusCode: 400, errorCode: "INVALID_MODEL" });
         return respondWithError(400, "INVALID_MODEL");
       }
 
       try {
         validateUniversalLayoutV2OpenAIScope(model, registration);
-        log("pilot_scope_validation", "passed");
+        hostId = registration.hostId;
+        screenId = registration.screenId;
       } catch (error) {
-        log("pilot_scope_validation", "failed");
+        const errorCode = error instanceof UniversalLayoutV2OpenAIScopeError
+          ? error.code
+          : "V2_OPENAI_SCOPE_REJECTED";
+        log("scope_rejected", "rejected", {
+          statusCode: 403,
+          errorCode,
+          hostId: registration.hostId,
+          screenId: registration.screenId,
+        });
         return respondWithError(
           403,
-          error instanceof UniversalLayoutV2OpenAIScopeError
-            ? error.code
-            : "V2_OPENAI_SCOPE_REJECTED",
+          errorCode,
         );
       }
+      log("registry_scope_passed", "passed");
 
       try {
         const provider = layoutOptions.universalLayoutV2OpenAIProvider ??
           createUniversalLayoutV2OpenAIProvider({
-            onDiagnostic: (diagnostic) =>
-              log("provider_diagnostic", "classified", undefined, diagnostic),
+            onDiagnostic: (diagnostic) => {
+              providerDiagnostic = diagnostic;
+            },
           });
         const guard = layoutOptions.universalLayoutV2OpenAIRequestGuard ??
           universalLayoutV2OpenAIProcessGuard;
@@ -673,7 +731,7 @@ export function createApp(
           universalLayoutV2ModelFingerprint(model),
           async () => {
             openaiAttempted = true;
-            log("openai_call", "started");
+            log("provider_start", "started");
             const plan = await generateUniversalLayoutV2Plan({
               model,
               policies: [registration.policy],
@@ -691,12 +749,24 @@ export function createApp(
             return validateDevelopmentUniversalLayoutV2Plan(plan, model);
           },
         );
-        if (result.source === "generated") log("openai_call", "succeeded");
-        log("plan_validation", result.source === "generated" ? "passed" : result.source);
-        log("response", "completed", 200);
+        if (result.source === "generated") log("provider_success", "passed");
         return res.json(result.plan);
       } catch (error) {
-        if (openaiAttempted) log("openai_call", "failed");
+        if (openaiAttempted) {
+          const errorCode = error instanceof UniversalLayoutV2GenerationError
+            ? error.code
+            : error instanceof UniversalLayoutV2ValidationError
+              ? error.code
+              : "PROVIDER_FAILURE";
+          log("provider_failure", "failed", {
+            errorCode,
+            ...(providerDiagnostic ? {
+              providerFailureCategory: providerDiagnostic.errorCategory,
+              providerHttpStatus: providerDiagnostic.httpStatus,
+              providerTimedOut: providerDiagnostic.timeout,
+            } : {}),
+          });
+        }
         if (error instanceof Error && error.name === "UniversalLayoutV2OpenAICallLimitError") {
           return respondWithError(429, "V2_OPENAI_CALL_LIMIT_REACHED");
         }
@@ -712,10 +782,8 @@ export function createApp(
           return respondWithError(400, error.code);
         }
         if (error instanceof UniversalLayoutV2GenerationError) {
-          log("generation_failure", "rejected", undefined, undefined, error.code);
           return respondWithError(502, error.validationCode ?? error.code);
         }
-        log("generation_failure", "rejected", undefined, undefined, "unknown");
         return respondWithError(502, "GENERATION_FAILED");
       }
     }));

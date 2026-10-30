@@ -462,3 +462,139 @@ test("v2 OpenAI route requires Bearer authentication before validation or genera
     assert.equal(calls.calls, 0);
   });
 });
+
+test("v2 OpenAI diagnostics correlate safe stages without exposing request data", async () => {
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_V2_OPENAI_PROVIDER: "true",
+  }, async () => {
+    const capturedLogs: string[] = [];
+    const originalInfo = console.info;
+    console.info = (...args: Parameters<typeof console.info>) => {
+      capturedLogs.push(String(args[0]));
+    };
+    const calls = { calls: 0 };
+    try {
+      const app = testApp(planProvider(calls));
+      const unauthenticated = await request(app).post(route).send({ model: demoModel() });
+      const invalidBody = await request(app)
+        .post(route)
+        .set("Authorization", `Bearer ${token}`)
+        .send({});
+      const validModel = demoModel();
+      const generated = await request(app)
+        .post(route)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ model: validModel });
+
+      assert.equal(unauthenticated.status, 401);
+      assert.equal(unauthenticated.body.error, "AUTH_REQUIRED");
+      assert.equal(invalidBody.status, 400);
+      assert.equal(invalidBody.body.error, "INVALID_REQUEST");
+      assert.equal(generated.status, 200);
+      assert.equal(calls.calls, 1);
+
+      const events = capturedLogs.map((line) => JSON.parse(line) as {
+        requestId: string;
+        stage: string;
+        elapsedMs: number;
+        openaiAttempted: boolean;
+        hostId?: string;
+        screenId?: string;
+      });
+      const stagesFor = (requestId: string) =>
+        events.filter((event) => event.requestId === requestId);
+      const unauthorizedEvents = stagesFor(unauthenticated.headers["x-request-id"]);
+      const invalidBodyEvents = stagesFor(invalidBody.headers["x-request-id"]);
+      const generatedEvents = stagesFor(generated.headers["x-request-id"]);
+
+      assert.deepEqual(
+        unauthorizedEvents.map((event) => event.stage),
+        ["request_received", "auth_rejected", "response_sent"],
+      );
+      assert.deepEqual(
+        invalidBodyEvents.map((event) => event.stage),
+        ["request_received", "auth_passed", "schema_rejected", "response_sent"],
+      );
+      assert.deepEqual(
+        generatedEvents.map((event) => event.stage),
+        [
+          "request_received",
+          "auth_passed",
+          "schema_passed",
+          "registry_scope_passed",
+          "provider_start",
+          "provider_success",
+          "response_sent",
+        ],
+      );
+      assert.equal(
+        generatedEvents.every((event) => Number.isFinite(event.elapsedMs)),
+        true,
+      );
+      assert.equal(generatedEvents.at(-1)?.openaiAttempted, true);
+      assert.equal(generatedEvents.find((event) => event.stage === "registry_scope_passed")?.hostId, "democoffee");
+      assert.equal(generatedEvents.find((event) => event.stage === "registry_scope_passed")?.screenId, "cafe.menu");
+      assert.ok(generatedEvents.every((event) => event.requestId === generated.headers["x-request-id"]));
+      const serializedLogs = capturedLogs.join("\n");
+      assert.equal(serializedLogs.includes(token), false);
+      assert.equal(serializedLogs.includes("Authorization"), false);
+      assert.equal(serializedLogs.includes("itemOrderHash"), false);
+    } finally {
+      console.info = originalInfo;
+    }
+  });
+});
+
+test("v2 OpenAI provider failures remain traceable with safe classifications", async () => {
+  await withEnvironment({
+    NODE_ENV: "development",
+    UNIVERSAL_LAYOUT_DEV_V2_OPENAI_PROVIDER: "true",
+  }, async () => {
+    const capturedLogs: string[] = [];
+    const originalInfo = console.info;
+    console.info = (...args: Parameters<typeof console.info>) => {
+      capturedLogs.push(String(args[0]));
+    };
+    try {
+      const provider: UniversalLayoutV2PlanProvider = {
+        async generate() {
+          const error = new Error("synthetic timeout for unit test");
+          error.name = "TimeoutError";
+          throw error;
+        },
+      };
+      const response = await request(testApp(provider))
+        .post(route)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ model: demoModel() });
+      assert.equal(response.status, 502);
+      assert.equal(response.body.error, "PROVIDER_TIMEOUT");
+
+      const events = capturedLogs.map((line) => JSON.parse(line) as {
+        requestId: string;
+        stage: string;
+        errorCode?: string;
+        openaiAttempted: boolean;
+      });
+      assert.deepEqual(
+        events.map((event) => event.stage),
+        [
+          "request_received",
+          "auth_passed",
+          "schema_passed",
+          "registry_scope_passed",
+          "provider_start",
+          "provider_failure",
+          "response_sent",
+        ],
+      );
+      assert.equal(events.at(-1)?.requestId, response.headers["x-request-id"]);
+      assert.equal(events.find((event) => event.stage === "provider_failure")?.errorCode, "PROVIDER_TIMEOUT");
+      assert.equal(events.find((event) => event.stage === "provider_failure")?.openaiAttempted, true);
+      assert.equal(capturedLogs.join("\n").includes(token), false);
+    } finally {
+      console.info = originalInfo;
+    }
+  });
+});
