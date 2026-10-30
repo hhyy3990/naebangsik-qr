@@ -7,10 +7,10 @@ unless both `NODE_ENV=production` and
 `UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER=true`. The gate is not configured by
 this change and must remain OFF until separate approval.
 
-The Production registration list currently contains the DemoCoffee candidate
-only. Its supplied item IDs and hashes reproduce under the central strict v2
-model policy. The Production gate remains OFF; any other host/screen, including
-Civil, fails closed with `503 PRODUCTION_HOST_UNVERIFIED`.
+The Production registration list contains the DemoCoffee and Civil candidates.
+Both supplied item IDs and hashes reproduce under their central strict v2 model
+policies. The Production gate remains OFF; other host/screen pairs fail closed
+with `503 PRODUCTION_HOST_UNVERIFIED`.
 
 ## Host request contract
 
@@ -27,10 +27,9 @@ Civil, fails closed with `503 PRODUCTION_HOST_UNVERIFIED`.
   codes without provider details.
 
 The expected auth secret is selected by the trusted Production registration's
-`authSecretEnv` field. Recommended per-host names are
-`DEMO_COFFEE_PROD_AI_TOKEN` and `CIVIL_PROD_AI_TOKEN`. No Secrets are configured
-by this implementation. Replit External Access Tokens are not application
-credentials and are not reused here.
+`authSecretEnv` field: `DEMO_COFFEE_PROD_AI_TOKEN` or `CIVIL_PROD_AI_TOKEN`.
+No Secrets are configured by this implementation. Replit External Access Tokens
+are not application credentials and are not reused here.
 
 ## Scope and provider behavior
 
@@ -43,27 +42,31 @@ order hash, and its generated model exposes only `single-column-list`.
 This confirms reproduction by the central model generator; the host repositories
 were not available for source-level review in this workspace.
 
-Civil's provided item-order, structure, and constraint hashes reproduce under
-the central policy when interpreted as the wide viewport class and the same
-accessibility tuple. Civil is not registered: `wide` does not prove a physical
-1080×1920 viewport, and central v2 has no pixel dimensions. The host must
-demonstrably enforce that exact physical viewport fail-closed before Civil can
-be included.
+Civil's supplied Production item-order, structure, and constraint hashes
+reproduce under the strict policy for the exact submitted `wide` model,
+`large / large / high / bottom-70` accessibility tuple,
+`reserved-bottom-controls` capability, 18 ordered certificate items, and
+`reserved-safe-list` option. The submitted host report also records a Production
+Chromium check of the single-column layout, ordering, touch target, final-item
+scroll/hit-test/click, QR dock/Footer overlap, and rollback behavior.
 
 The model schema only carries `viewportClass` (`compact`, `regular`, or `wide`);
 it has no physical pixel width/height fields. Central validation therefore
-cannot prove Civil is exactly 1080×1920. Civil must retain its own fail-closed
-physical viewport and DOM overlap/hit-test safeguards before applying a plan.
+cannot prove Civil is exactly 1080×1920. Registration relies on Civil's host
+runtime to fail closed unless the physical viewport is exactly 1080×1920 and to
+recheck DOM overlap, hit-testing, and rollback safety after applying any plan.
+These are mandatory host trust conditions, not checks performed by this API.
+The supplied browser-test report is evidence of those checks, but the host
+source/runtime is not present here for independent source-level review.
 DemoCoffee must similarly enforce its own compact/regular runtime classification.
 
 The plan passes the existing v2 model and plan validators; there is no Fake
 fallback or SDK retry. The OpenAI response uses `store:false`, an 18-second
 timeout, and a 500-token output limit.
 
-The current DemoCoffee entry is limited to the reproduced Production candidate.
-Do not add Civil until host runtime evidence confirms the physical viewport
-guard and its DOM overlap/hit-test protections, in addition to the IDs, item
-order, constraints, G profile, and reserved-control capability.
+Both entries are limited to their reproduced Production candidates. Civil's
+physical viewport guard and applied-DOM safety checks remain mandatory host-side
+preconditions even though the central API cannot independently enforce them.
 
 ## Shared quota and idempotency
 
@@ -88,17 +91,19 @@ store fails closed if the tables or seed row are unavailable.
 
 ## Pre-deployment checklist
 
-1. Reconfirm the DemoCoffee Production snapshot and keep the Production
-   allowlist separate from the Development registry.
+1. Reconfirm both Production host snapshots and keep the Production allowlist
+   separate from the Development registry.
 2. Review and apply `migrations/20261031_production_v2_ai.sql` to the intended
    database through the approved schema-change process.
 3. Add distinct host tokens and `OPENAI_API_KEY` to Production Secrets, and set
    a fixed `UNIVERSAL_LAYOUT_PROD_OPENAI_MODEL`.
 4. Ensure host backends keep credentials server-side and use one stable
    idempotency key per demo interaction.
-5. Verify each host retains its own final DOM safety/rollback checks.
+5. Before enabling Civil, independently confirm the host's fail-closed
+   1080×1920 guard and post-apply DOM overlap/hit-test/rollback checks.
 6. Obtain separate approval before enabling the Production gate or publishing.
 
-The DemoCoffee candidate hash reproduction and central registry entry are the
-only preparation steps completed here. No migration, Secrets update, gate
-enablement, host-side runtime check, or deployment was performed.
+The DemoCoffee and Civil candidate hash reproductions and central registry
+entries are completed. Civil's supplied browser verification report was used;
+its host source/runtime was not independently reviewed. No migration, Secrets
+update, gate enablement, or deployment was performed.

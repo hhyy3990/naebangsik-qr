@@ -11,6 +11,7 @@ import {
 import { universalSha256 } from "./universal-layout-contract";
 import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator-v2";
 import {
+  CIVIL_PRODUCTION_V2_REGISTRATION,
   DEMO_COFFEE_PRODUCTION_V2_REGISTRATION,
   PRODUCTION_V2_ROUTE,
   PRODUCTION_V2_REGISTRY,
@@ -177,9 +178,7 @@ const civilModel = createUniversalLayoutV2Model(civilPolicy, {
     itemOrderHash: civilItemOrderHash,
   }],
 });
-const civilProductionCandidatePolicy = structuredClone(CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY);
-civilProductionCandidatePolicy.hostId = "civil-kiosk-production";
-civilProductionCandidatePolicy.structureVersion = "civil-main-menu.production.v1";
+const civilProductionCandidatePolicy = CIVIL_PRODUCTION_V2_REGISTRATION.policy;
 const civilProductionCandidateModel = createUniversalLayoutV2Model(civilProductionCandidatePolicy, {
   viewportClass: "wide",
   accessibility: {
@@ -329,15 +328,11 @@ test("Production DemoCoffee candidate hashes reproduce and registered models pas
     });
     const badStructureHash = { ...compact, structureHash: "0".repeat(64) };
     const badConstraintHash = { ...compact, constraintHash: "0".repeat(64) };
-    const civil = civilProductionCandidateModel;
-    assert.equal(civil.structureHash, "820cf03f6613da155cc79f39e0e36a8e99eda671be3b15cb7ec37f01b58ab343");
-    assert.equal(civil.constraintHash, "67db940ccb6a69a59f0d13cc902dfa610d4e24a929021efbc2270b7e5033d3e9");
     const invalidModels = [
       { model: badProfile, status: 403 },
       { model: badStructureHash, status: 403 },
       { model: badConstraintHash, status: 403 },
       { model: { ...compact, hostId: "unregistered-host" }, status: 503 },
-      { model: civil, status: 503 },
     ];
     for (const [index, invalid] of invalidModels.entries()) {
       const response = await send(app, `demo-prod-invalid-${String(index).padStart(2, "0")}`, invalid.model);
@@ -352,6 +347,86 @@ test("Production DemoCoffee candidate hashes reproduce and registered models pas
     else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
     if (previousHostToken === undefined) delete process.env.DEMO_COFFEE_PROD_AI_TOKEN;
     else process.env.DEMO_COFFEE_PROD_AI_TOKEN = previousHostToken;
+    delete process.env[secretEnv];
+  }
+});
+
+test("Civil Production candidate reproduces hashes and is allowlisted under strict host policy", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+  const previousCivilToken = process.env.CIVIL_PROD_AI_TOKEN;
+  const calls = { count: 0 };
+  try {
+    const store = new MockStore();
+    process.env.CIVIL_PROD_AI_TOKEN = secretValue;
+    const app = testApp(store, provider(calls), PRODUCTION_V2_REGISTRY);
+    const candidate = civilProductionCandidateModel;
+    assert.equal(candidate.structureHash, "820cf03f6613da155cc79f39e0e36a8e99eda671be3b15cb7ec37f01b58ab343");
+    assert.equal(candidate.constraintHash, "67db940ccb6a69a59f0d13cc902dfa610d4e24a929021efbc2270b7e5033d3e9");
+    assert.equal(candidate.viewportClass, "wide");
+    assert.deepEqual(candidate.layoutCapabilities, ["reserved-bottom-controls"]);
+    assert.equal(candidate.components[0].itemCount, 18);
+    assert.deepEqual(candidate.components[0].optionGroups, [{
+      id: "arrangement",
+      optionIds: ["reserved-safe-list"],
+    }]);
+
+    const accepted = await send(app, "civil-prod-candidate-0001", candidate);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.operations[0].optionId, "reserved-safe-list");
+    assert.equal(calls.count, 1);
+    assert.equal(store.used, 1);
+
+    const wrongProfile = createUniversalLayoutV2Model(civilProductionCandidatePolicy, {
+      viewportClass: "wide",
+      accessibility: {
+        textScale: "standard",
+        buttonScale: "standard",
+        contrast: "standard",
+        viewportMode: null,
+      },
+      layoutCapabilities: ["reserved-bottom-controls"],
+      componentState: [{
+        id: CIVIL_PRODUCTION_V2_REGISTRATION.component.id,
+        itemCount: CIVIL_PRODUCTION_V2_REGISTRATION.component.itemCount,
+        itemOrderHash: CIVIL_PRODUCTION_V2_REGISTRATION.component.itemOrderHash,
+      }],
+    });
+    const wrongViewport = createUniversalLayoutV2Model(civilProductionCandidatePolicy, {
+      viewportClass: "regular",
+      accessibility: CIVIL_PRODUCTION_V2_REGISTRATION.accessibility,
+      layoutCapabilities: ["reserved-bottom-controls"],
+      componentState: [{
+        id: CIVIL_PRODUCTION_V2_REGISTRATION.component.id,
+        itemCount: CIVIL_PRODUCTION_V2_REGISTRATION.component.itemCount,
+        itemOrderHash: CIVIL_PRODUCTION_V2_REGISTRATION.component.itemOrderHash,
+      }],
+    });
+    const invalidCandidates = [
+      { ...candidate, accessibility: wrongProfile.accessibility, structureHash: wrongProfile.structureHash, constraintHash: wrongProfile.constraintHash },
+      { ...candidate, structureHash: "0".repeat(64) },
+      { ...candidate, constraintHash: "0".repeat(64) },
+      wrongViewport,
+      { ...candidate, layoutCapabilities: [] },
+      { ...candidate, components: [{ ...candidate.components[0], itemCount: 17 }] },
+      { ...candidate, components: [{
+        ...candidate.components[0],
+        optionGroups: [{ id: "arrangement", optionIds: ["compact-grid"] }],
+      }] },
+    ];
+    for (const [index, invalid] of invalidCandidates.entries()) {
+      const response = await send(app, `civil-prod-invalid-${String(index).padStart(2, "0")}`, invalid);
+      assert.equal(response.status, 403, `invalid Civil candidate ${index}`);
+    }
+    assert.equal(calls.count, 1);
+    assert.equal(store.used, 1);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+    else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    if (previousCivilToken === undefined) delete process.env.CIVIL_PROD_AI_TOKEN;
+    else process.env.CIVIL_PROD_AI_TOKEN = previousCivilToken;
     delete process.env[secretEnv];
   }
 });

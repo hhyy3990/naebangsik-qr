@@ -3,10 +3,10 @@ name: Universal v2 host policy evidence
 description: Distinguish central conformance fixtures from host-confirmed policy registrations.
 ---
 
-Submitted Development compatibility reports now provide snapshots whose DemoCoffee and Civil hashes and plans reproduce with the central v2 validator. The DemoCoffee report uses the real five-item structure rather than the synthetic fixture; Civil's reported ID is `civil-kiosk-development-test`, distinct from the preserved central mock ID `civil-kiosk-mock`.
+Submitted host reports can establish model/hash compatibility when their Production Chromium candidate reproduces under the central v2 validator. DemoCoffee and Civil Production candidates now reproduce their supplied item-order, structure, and constraint hashes under their exact registered policies.
 
-These reports establish only the supplied Development states, not complete host compatibility. Keep `hostPolicyVerified` false until the host source/runtime and relevant viewport, accessibility, item-order, and capability transitions are independently checked. Civil's mock ID/version remain test-only.
+Central v2 carries viewport classes, not physical pixel dimensions, so it cannot independently prove Civil's 1080×1920 requirement. Civil may be registered based on the supplied Production browser report only while treating fail-closed exact-viewport enforcement and post-apply DOM overlap/hit-test/rollback checks as mandatory host trust conditions. The host repository is not necessarily available for independent source review.
 
-**Why:** the user supplied observed snapshots and required separating verified fields from unresolved policy scope; one matching snapshot is not sufficient to approve a full host registration.
+**Why:** the user authorized Civil's central Production registration after submitting a Production Chromium safety report, while explicitly requiring the central limitation and host-side safeguards to remain visible and mandatory.
 
-**How to apply:** keep entries Development-only and explicitly unverified. Preserve the legacy mock row, recompute hashes for each host-provided model, and confirm runtime footer/QR-dock detection and profile transitions before promoting a host registration.
+**How to apply:** recompute all submitted hashes and enforce the exact G profile, structure, item order, option, capabilities, and viewport class centrally. Document physical viewport and DOM-safety controls as non-central host preconditions; never imply the central API verifies them.

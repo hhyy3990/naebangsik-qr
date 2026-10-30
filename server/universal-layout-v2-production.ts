@@ -94,6 +94,54 @@ const demoCoffeeProductionPolicy: UniversalLayoutV2Policy = {
   }],
 };
 
+const civilProductionAccessibility: UniversalLayoutV2Accessibility = {
+  textScale: "large",
+  buttonScale: "large",
+  contrast: "high",
+  viewportMode: { mode: "bottom", heightPercent: 70 },
+};
+
+const civilProductionPolicy: UniversalLayoutV2Policy = {
+  hostId: "civil-kiosk-production",
+  screenId: "civil.main-menu",
+  structureVersion: "civil-main-menu.production.v1",
+  allowedCapabilities: ["reserved-bottom-controls"],
+  capabilityRules: {
+    "reserved-bottom-controls": {
+      componentIds: ["civil.certificate-grid"],
+      maximumColumns: 1,
+    },
+  },
+  components: [{
+    id: "civil.certificate-grid",
+    kind: "repeated-card-list",
+    role: "certificate-choice-list",
+    order: 0,
+    itemCountRange: [18, 18],
+    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2] },
+    singleColumnForLargeText: true,
+    singleColumnForLargeButtons: true,
+    singleColumnForHighContrast: true,
+    singleColumnForBottomViewport: true,
+    operations: ["setColumns"],
+    optionGroups: [{
+      id: "arrangement",
+      options: [{
+        id: "reserved-safe-list",
+        requiresCapabilities: ["reserved-bottom-controls"],
+        accessibility: {
+          textScale: ["standard", "large"],
+          buttonScale: ["standard", "large"],
+          contrast: ["standard", "high"],
+          viewportMode: ["none", "bottom-70"],
+        },
+      }],
+    }],
+    minimumTouchTargetPx: 44,
+    protectedProperties: ["items", "order", "selection", "issuance-actions"],
+  }],
+};
+
 export const DEMO_COFFEE_PRODUCTION_V2_REGISTRATION: ProductionV2Registration = {
   hostId: "democoffee",
   screenId: "cafe.menu",
@@ -115,13 +163,36 @@ export const DEMO_COFFEE_PRODUCTION_V2_REGISTRATION: ProductionV2Registration = 
   authSecretEnv: "DEMO_COFFEE_PROD_AI_TOKEN",
 };
 
+export const CIVIL_PRODUCTION_V2_REGISTRATION: ProductionV2Registration = {
+  hostId: "civil-kiosk-production",
+  screenId: "civil.main-menu",
+  structureVersion: "civil-main-menu.production.v1",
+  accessibility: civilProductionAccessibility,
+  viewportClasses: ["wide"],
+  layoutCapabilities: ["reserved-bottom-controls"],
+  component: {
+    id: "civil.certificate-grid",
+    kind: "repeated-card-list",
+    role: "certificate-choice-list",
+    order: 0,
+    itemCount: 18,
+    itemOrderHash: "1f984cacde0e9014a80a73b90f15ea8a2ca3002ee5a1a65b737cd8fe11e9342c",
+  },
+  optionGroupId: "arrangement",
+  optionId: "reserved-safe-list",
+  policy: civilProductionPolicy,
+  authSecretEnv: "CIVIL_PROD_AI_TOKEN",
+};
+
 /**
  * Contains only candidates whose submitted hashes reproduce under the central
- * v2 contract. Civil remains excluded because its exact physical viewport
- * cannot be enforced by this contract.
+ * v2 contract. Civil's exact physical viewport and post-apply DOM safety checks
+ * remain mandatory host-side trust conditions; the central model carries only
+ * the "wide" class and cannot independently measure physical pixels.
  */
 export const PRODUCTION_V2_REGISTRY: readonly ProductionV2Registration[] = [
   DEMO_COFFEE_PRODUCTION_V2_REGISTRATION,
+  CIVIL_PRODUCTION_V2_REGISTRATION,
 ];
 
 export type ReserveResult =
