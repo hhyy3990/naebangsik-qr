@@ -34,11 +34,23 @@ credentials and are not reused here.
 
 ## Scope and provider behavior
 
-Only Profile G is accepted: large text, large buttons, high contrast, and a
-70%-height bottom viewport. The registered structure, component, and one
-layout-option ID must match exactly. The plan passes the existing v2 model and
-plan validators; there is no Fake fallback or SDK retry. The OpenAI response
-uses `store:false`, an 18-second timeout, and a 500-token output limit.
+Each Production registration defines its own exact accessibility tuple, allowed
+`viewportClass` values, capabilities, component identity/order/count/item hash,
+option group, and single option ID. Do not assume DemoCoffee and Civil share the
+same G tuple. DemoCoffee's intended registration is compact/regular plus
+`single-column-list`; Civil's intended registration is wide plus
+`reserved-bottom-controls` and `reserved-safe-list`. These are host requirements,
+not populated Production registrations.
+
+The model schema only carries `viewportClass` (`compact`, `regular`, or `wide`);
+it has no physical pixel width/height fields. Central validation therefore
+cannot prove Civil is exactly 1080×1920. Civil must retain its own fail-closed
+physical viewport and DOM overlap/hit-test safeguards before applying a plan.
+DemoCoffee must similarly enforce its own compact/regular runtime classification.
+
+The plan passes the existing v2 model and plan validators; there is no Fake
+fallback or SDK retry. The OpenAI response uses `store:false`, an 18-second
+timeout, and a 500-token output limit.
 
 The Production allowlist must be populated only after each host's Production
 runtime confirms host/screen IDs, structure version, item order and hash,

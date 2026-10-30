@@ -5,8 +5,10 @@ import request from "supertest";
 import { createApp } from "./app";
 import {
   createUniversalLayoutV2Model,
+  type UniversalLayoutV2Model,
   type UniversalLayoutV2Plan,
 } from "./universal-layout-contract-v2";
+import { universalSha256 } from "./universal-layout-contract";
 import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator-v2";
 import {
   PRODUCTION_V2_ROUTE,
@@ -15,7 +17,10 @@ import {
   type ProductionV2RequestStore,
   type ReserveResult,
 } from "./universal-layout-v2-production";
-import { DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY } from "./universal-v2-conformance-fixtures";
+import {
+  CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY,
+  DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
+} from "./universal-v2-conformance-fixtures";
 
 const hostId = DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.hostId;
 const screenId = DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.screenId;
@@ -25,7 +30,23 @@ const registration: ProductionV2Registration = {
   hostId,
   screenId,
   structureVersion: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY.structureVersion,
-  componentId: "menu.product-list",
+  accessibility: {
+    textScale: "large",
+    buttonScale: "large",
+    contrast: "high",
+    viewportMode: { mode: "bottom", heightPercent: 70 },
+  },
+  viewportClasses: ["compact", "regular"],
+  layoutCapabilities: [],
+  component: {
+    id: "menu.product-list",
+    kind: "repeated-card-list",
+    role: "ordered-menu-list",
+    order: 0,
+    itemCount: 5,
+    itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
+  },
+  optionGroupId: "arrangement",
   optionId: "single-column-list",
   policy: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
   authSecretEnv: secretEnv,
@@ -96,7 +117,12 @@ class MockStore implements ProductionV2RequestStore {
   }
 }
 
-function provider(calls: { count: number }, fail = false, delay = 0): UniversalLayoutV2PlanProvider {
+function provider(
+  calls: { count: number },
+  fail = false,
+  delay = 0,
+  optionId?: string,
+): UniversalLayoutV2PlanProvider {
   return {
     async generate({ payload }) {
       calls.count += 1;
@@ -104,6 +130,8 @@ function provider(calls: { count: number }, fail = false, delay = 0): UniversalL
       if (fail) throw new Error("mock provider failure");
       const component = payload.components[0];
       const group = component.optionGroups![0];
+      const selectedOptionId = optionId ??
+        (payload.hostId.startsWith("civil") ? "reserved-safe-list" : "single-column-list");
       return {
         schemaVersion: payload.schemaVersion,
         contractVersion: payload.contractVersion,
@@ -117,12 +145,56 @@ function provider(calls: { count: number }, fail = false, delay = 0): UniversalL
           type: "selectLayoutOption",
           targetId: component.id,
           groupId: group.id,
-          optionId: "single-column-list",
+          optionId: selectedOptionId,
         }],
       };
     },
   };
 }
+
+const civilPolicy = structuredClone(CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY);
+civilPolicy.hostId = "civil-kiosk-policy-test";
+civilPolicy.structureVersion = "civil.main-menu.policy-test";
+const civilAccessibility = {
+  textScale: "large",
+  buttonScale: "standard",
+  contrast: "high",
+  viewportMode: null,
+} as const;
+const civilItemOrderHash = universalSha256({
+  orderedItemIds: Array.from({ length: 18 }, (_, index) =>
+    `civil.certificate.${String(index + 1).padStart(2, "0")}`),
+});
+const civilModel = createUniversalLayoutV2Model(civilPolicy, {
+  viewportClass: "wide",
+  accessibility: civilAccessibility,
+  layoutCapabilities: ["reserved-bottom-controls"],
+  componentState: [{
+    id: "civil.certificate-grid",
+    itemCount: 18,
+    itemOrderHash: civilItemOrderHash,
+  }],
+});
+const civilRegistration: ProductionV2Registration = {
+  hostId: civilPolicy.hostId,
+  screenId: civilPolicy.screenId,
+  structureVersion: civilPolicy.structureVersion,
+  accessibility: civilAccessibility,
+  viewportClasses: ["wide"],
+  layoutCapabilities: ["reserved-bottom-controls"],
+  component: {
+    id: "civil.certificate-grid",
+    kind: "repeated-card-list",
+    role: "certificate-choice-list",
+    order: 0,
+    itemCount: 18,
+    itemOrderHash: civilItemOrderHash,
+  },
+  optionGroupId: "arrangement",
+  optionId: "reserved-safe-list",
+  policy: civilPolicy,
+  authSecretEnv: secretEnv,
+};
 
 function testApp(
   store: ProductionV2RequestStore,
@@ -167,6 +239,184 @@ test("Production AI route is absent by default and unverified host scope fails c
     assert.equal(response.status, 503);
     assert.equal(response.body.error, "PRODUCTION_HOST_UNVERIFIED");
     assert.equal(calls.count, 0);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+    else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    delete process.env[secretEnv];
+  }
+});
+
+test("DemoCoffee and Civil registrations independently validate different test-only G profiles", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+  const calls = { count: 0 };
+  try {
+    const app = testApp(new MockStore(), provider(calls), [registration, civilRegistration]);
+    const demoResponse = await send(app, "demo-independent-g-0001", model);
+    const civilResponse = await send(app, "civil-independent-g-0001", civilModel);
+    assert.equal(demoResponse.status, 200);
+    assert.equal(demoResponse.body.operations[0].optionId, "single-column-list");
+    assert.equal(civilResponse.status, 200);
+    assert.equal(civilResponse.body.operations[0].optionId, "reserved-safe-list");
+    assert.equal(calls.count, 2);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+    else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    delete process.env[secretEnv];
+  }
+});
+
+test("Host-specific invalid profiles, viewports, capabilities, component data, options, and hashes fail before provider", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+  const calls = { count: 0 };
+  try {
+    const store = new MockStore();
+    const app = testApp(store, provider(calls));
+    const wrongProfile = createUniversalLayoutV2Model(DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY, {
+      viewportClass: "regular",
+      accessibility: {
+        textScale: "standard",
+        buttonScale: "standard",
+        contrast: "standard",
+        viewportMode: null,
+      },
+      layoutCapabilities: [],
+      componentState: [{
+        id: "menu.product-list",
+        itemCount: 5,
+        itemOrderHash: registration.component.itemOrderHash,
+      }],
+    });
+    const invalidHash = { ...model, structureHash: "0".repeat(64) };
+    const invalidConstraintHash = { ...model, constraintHash: "0".repeat(64) };
+    const invalidCapability = {
+      ...model,
+      layoutCapabilities: ["reserved-bottom-controls" as const],
+    };
+    const invalidComponentData = {
+      ...model,
+      components: [{ ...model.components[0], itemCount: 4 }],
+    };
+
+    const cases: Array<{
+      name: string;
+      reg?: ProductionV2Registration;
+      body: UniversalLayoutV2Model;
+    }> = [
+      { name: "profile", body: wrongProfile },
+      { name: "viewport", body: { ...model, viewportClass: "wide" } },
+      { name: "capability", body: invalidCapability },
+      { name: "component", body: invalidComponentData },
+      { name: "structure-hash", body: invalidHash },
+      { name: "constraint-hash", body: invalidConstraintHash },
+      {
+        name: "option",
+        reg: {
+          ...registration,
+          accessibility: {
+            textScale: "standard",
+            buttonScale: "standard",
+            contrast: "standard",
+            viewportMode: null,
+          },
+          optionId: "single-column-list",
+        },
+        body: wrongProfile,
+      },
+    ];
+
+    for (const [index, item] of cases.entries()) {
+      const registrationForCase = item.reg ?? registration;
+      const caseApp = item.reg
+        ? testApp(store, provider(calls), [registrationForCase])
+        : app;
+      const response = await send(caseApp, `invalid-policy-case-${String(index).padStart(2, "0")}`, item.body);
+      assert.equal(response.status, 403, item.name);
+    }
+    assert.equal(calls.count, 0);
+    assert.equal(store.used, 0);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+    else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    delete process.env[secretEnv];
+  }
+});
+
+test("Civil host-specific invalid G, viewport, option, capability, component, and hashes fail closed", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+  const calls = { count: 0 };
+  try {
+    const store = new MockStore();
+    const app = testApp(store, provider(calls), [civilRegistration]);
+    const wrongCivilProfile = createUniversalLayoutV2Model(civilPolicy, {
+      viewportClass: "wide",
+      accessibility: { ...civilAccessibility, buttonScale: "large" },
+      layoutCapabilities: ["reserved-bottom-controls"],
+      componentState: [{
+        id: "civil.certificate-grid",
+        itemCount: 18,
+        itemOrderHash: civilItemOrderHash,
+      }],
+    });
+    const wrongCivilViewport = createUniversalLayoutV2Model(civilPolicy, {
+      viewportClass: "regular",
+      accessibility: civilAccessibility,
+      layoutCapabilities: ["reserved-bottom-controls"],
+      componentState: [{
+        id: "civil.certificate-grid",
+        itemCount: 18,
+        itemOrderHash: civilItemOrderHash,
+      }],
+    });
+    const missingCivilCapability = createUniversalLayoutV2Model(civilPolicy, {
+      viewportClass: "wide",
+      accessibility: civilAccessibility,
+      layoutCapabilities: [],
+      componentState: [{
+        id: "civil.certificate-grid",
+        itemCount: 18,
+        itemOrderHash: civilItemOrderHash,
+      }],
+    });
+    const wrongCivilComponent = {
+      ...civilModel,
+      components: [{ ...civilModel.components[0], itemCount: 17 }],
+    };
+    const cases: Array<{
+      name: string;
+      reg?: ProductionV2Registration;
+      body: UniversalLayoutV2Model;
+    }> = [
+      { name: "civil-profile", body: wrongCivilProfile },
+      { name: "civil-viewport", body: wrongCivilViewport },
+      { name: "civil-capability", body: missingCivilCapability },
+      { name: "civil-component", body: wrongCivilComponent },
+      { name: "civil-structure-hash", body: { ...civilModel, structureHash: "0".repeat(64) } },
+      { name: "civil-constraint-hash", body: { ...civilModel, constraintHash: "0".repeat(64) } },
+      {
+        name: "civil-option",
+        reg: { ...civilRegistration, optionId: "compact-grid" },
+        body: civilModel,
+      },
+    ];
+
+    for (const [index, item] of cases.entries()) {
+      const caseApp = item.reg
+        ? testApp(store, provider(calls), [item.reg])
+        : app;
+      const response = await send(caseApp, `civil-invalid-policy-${String(index).padStart(2, "0")}`, item.body);
+      assert.equal(response.status, 403, item.name);
+    }
+    assert.equal(calls.count, 0);
+    assert.equal(store.used, 0);
   } finally {
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousNodeEnv;

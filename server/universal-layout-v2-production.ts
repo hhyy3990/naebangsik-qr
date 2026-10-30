@@ -16,8 +16,11 @@ import {
   validateUniversalLayoutV2Plan,
   UniversalLayoutV2ValidationError,
   type UniversalLayoutV2Model,
+  type UniversalLayoutV2Accessibility,
+  type UniversalLayoutV2Capability,
   type UniversalLayoutV2Plan,
   type UniversalLayoutV2Policy,
+  type UniversalLayoutV2Viewport,
 } from "./universal-layout-contract-v2";
 import {
   createUniversalLayoutV2OpenAIProvider,
@@ -31,7 +34,18 @@ export type ProductionV2Registration = {
   hostId: string;
   screenId: string;
   structureVersion: string;
-  componentId: string;
+  accessibility: UniversalLayoutV2Accessibility;
+  viewportClasses: readonly UniversalLayoutV2Viewport[];
+  layoutCapabilities: readonly UniversalLayoutV2Capability[];
+  component: {
+    id: string;
+    kind: string;
+    role: string;
+    order: number;
+    itemCount: number;
+    itemOrderHash: string;
+  };
+  optionGroupId: string;
   optionId: string;
   policy: UniversalLayoutV2Policy;
   authSecretEnv: string;
@@ -202,12 +216,20 @@ function safeErrorCode(error: unknown): string {
   return "GENERATION_FAILED";
 }
 
-function isProfileG(model: UniversalLayoutV2Model): boolean {
-  return model.accessibility.textScale === "large" &&
-    model.accessibility.buttonScale === "large" &&
-    model.accessibility.contrast === "high" &&
-    model.accessibility.viewportMode?.mode === "bottom" &&
-    model.accessibility.viewportMode.heightPercent === 70;
+function accessibilityMatches(
+  actual: UniversalLayoutV2Accessibility,
+  expected: UniversalLayoutV2Accessibility,
+): boolean {
+  return actual.textScale === expected.textScale &&
+    actual.buttonScale === expected.buttonScale &&
+    actual.contrast === expected.contrast &&
+    actual.viewportMode?.mode === expected.viewportMode?.mode &&
+    actual.viewportMode?.heightPercent === expected.viewportMode?.heightPercent;
+}
+
+function sameValues<T extends string>(actual: readonly T[], expected: readonly T[]): boolean {
+  return actual.length === expected.length &&
+    [...actual].sort().every((value, index) => value === [...expected].sort()[index]);
 }
 
 function logProductionV2(
@@ -272,13 +294,25 @@ export function registerProductionV2Route(
       if (candidate.structureVersion !== registration.structureVersion) {
         throw new Error("PRODUCTION_SCOPE_REJECTED");
       }
+      if (
+        !accessibilityMatches(candidate.accessibility, registration.accessibility) ||
+        !registration.viewportClasses.includes(candidate.viewportClass) ||
+        !sameValues(candidate.layoutCapabilities, registration.layoutCapabilities)
+      ) {
+        throw new Error("PRODUCTION_SCOPE_REJECTED");
+      }
       model = validateUniversalLayoutV2Model(candidate, [registration.policy]);
-      if (!isProfileG(model)) throw new Error("PRODUCTION_SCOPE_REJECTED");
-      const component = model.components.find((item) => item.id === registration.componentId);
+      const component = model.components.find((item) => item.id === registration.component.id);
       if (
         model.components.length !== 1 ||
         !component ||
+        component.kind !== registration.component.kind ||
+        component.role !== registration.component.role ||
+        component.order !== registration.component.order ||
+        component.itemCount !== registration.component.itemCount ||
+        component.itemOrderHash !== registration.component.itemOrderHash ||
         component.optionGroups?.length !== 1 ||
+        component.optionGroups[0].id !== registration.optionGroupId ||
         component.optionGroups[0].optionIds.length !== 1 ||
         component.optionGroups[0].optionIds[0] !== registration.optionId
       ) {
@@ -359,7 +393,7 @@ export function registerProductionV2Route(
         provider,
         responseSchema: createUniversalLayoutV2SingleOptionPlanJsonSchema(
           model,
-          registration.componentId,
+          registration.component.id,
           registration.optionId,
         ),
         systemInstruction: UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
@@ -368,7 +402,7 @@ export function registerProductionV2Route(
       if (
         validatedPlan.operations.length !== 1 ||
         validatedPlan.operations[0].type !== "selectLayoutOption" ||
-        validatedPlan.operations[0].targetId !== registration.componentId ||
+        validatedPlan.operations[0].targetId !== registration.component.id ||
         validatedPlan.operations[0].optionId !== registration.optionId ||
         validatedPlan.operations[0].groupId !== group.id
       ) {
