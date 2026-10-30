@@ -13,6 +13,7 @@ import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator
 import {
   PRODUCTION_V2_ROUTE,
   PRODUCTION_V2_REGISTRY,
+  PRODUCTION_V2_MAX_CALLS,
   type ProductionV2Registration,
   type ProductionV2RequestStore,
   type ReserveResult,
@@ -70,7 +71,7 @@ const model = createUniversalLayoutV2Model(DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLIC
 
 class MockStore implements ProductionV2RequestStore {
   used = 0;
-  maxCalls = 30;
+  maxCalls = PRODUCTION_V2_MAX_CALLS;
   records = new Map<string, {
     fingerprint: string;
     status: "reserved" | "succeeded" | "failed";
@@ -453,20 +454,47 @@ test("Concurrent identical Production requests invoke provider once and replay t
   }
 });
 
-test("Concurrent unique requests never reserve more than the global 30-call quota", async () => {
+test("Production quota allows exactly 50 sequential calls and rejects the 51st", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+  const calls = { count: 0 };
+  try {
+    const store = new MockStore();
+    const app = testApp(store, provider(calls));
+    const responses = [];
+    for (let index = 0; index < PRODUCTION_V2_MAX_CALLS; index += 1) {
+      responses.push(await send(app, `demo-quota-boundary-${String(index).padStart(4, "0")}`));
+    }
+    const rejected = await send(app, "demo-quota-boundary-0050");
+    assert.equal(responses.length, 50);
+    assert.ok(responses.every((response) => response.status === 200));
+    assert.equal(rejected.status, 429);
+    assert.equal(rejected.body.error, "AI_QUOTA_EXHAUSTED");
+    assert.equal(store.used, 50);
+    assert.equal(calls.count, 50);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+    else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    delete process.env[secretEnv];
+  }
+});
+
+test("Concurrent unique requests never reserve more than the global 50-call quota", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
   const calls = { count: 0 };
   try {
     const store = new MockStore();
     const app = testApp(store, provider(calls, false, 5));
-    const responses = await Promise.all(Array.from({ length: 34 }, (_, index) =>
+    const responses = await Promise.all(Array.from({ length: 51 }, (_, index) =>
       send(app, `demo-session-key-${String(index).padStart(4, "0")}`),
     ));
-    assert.equal(store.used, 30);
-    assert.equal(calls.count, 30);
-    assert.equal(responses.filter((response) => response.status === 200).length, 30);
-    assert.equal(responses.filter((response) => response.status === 429).length, 4);
+    assert.equal(store.used, 50);
+    assert.equal(calls.count, 50);
+    assert.equal(responses.filter((response) => response.status === 200).length, 50);
+    assert.equal(responses.filter((response) => response.status === 429).length, 1);
   } finally {
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousNodeEnv;

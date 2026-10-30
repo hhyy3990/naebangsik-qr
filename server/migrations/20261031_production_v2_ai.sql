@@ -4,14 +4,14 @@ BEGIN;
 
 CREATE TABLE demo_ai_quota (
   id SMALLINT PRIMARY KEY CHECK (id = 1),
-  max_calls SMALLINT NOT NULL DEFAULT 30 CHECK (max_calls = 30),
+  max_calls SMALLINT NOT NULL DEFAULT 50 CHECK (max_calls = 50),
   reserved_calls SMALLINT NOT NULL DEFAULT 0
     CHECK (reserved_calls >= 0 AND reserved_calls <= max_calls),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 INSERT INTO demo_ai_quota (id, max_calls, reserved_calls)
-VALUES (1, 30, 0);
+VALUES (1, 50, 0);
 
 CREATE TABLE demo_ai_idempotency (
   host_id TEXT NOT NULL,

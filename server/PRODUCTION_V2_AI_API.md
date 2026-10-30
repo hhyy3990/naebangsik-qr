@@ -60,7 +60,7 @@ overlap/viewport checks must be verified independently.
 
 ## Shared quota and idempotency
 
-The migration defines a singleton `demo_ai_quota` row with a hard 30-attempt
+The migration defines a singleton `demo_ai_quota` row with a hard 50-attempt
 maximum and `demo_ai_idempotency` rows keyed by host and a SHA-256 hash of the
 provided key. A transaction locks the singleton quota row, deletes expired
 idempotency records, checks a prior key/fingerprint, and atomically reserves one

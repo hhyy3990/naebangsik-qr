@@ -29,6 +29,7 @@ import {
 
 export const PRODUCTION_V2_ROUTE = "/api/production/universal-layout/v2/openai-plan";
 export const PRODUCTION_V2_PLAN_TTL_MS = 24 * 60 * 60 * 1000;
+export const PRODUCTION_V2_MAX_CALLS = 50;
 
 export type ProductionV2Registration = {
   hostId: string;
@@ -128,7 +129,10 @@ export class PostgresProductionV2RequestStore implements ProductionV2RequestStor
         return record.status === "reserved" ? { kind: "in_progress" } : { kind: "previous_failure" };
       }
 
-      if (quota.rows[0].reserved_calls >= quota.rows[0].max_calls) {
+      if (
+        quota.rows[0].reserved_calls >=
+        Math.min(quota.rows[0].max_calls, PRODUCTION_V2_MAX_CALLS)
+      ) {
         await client.query("COMMIT");
         return { kind: "quota_exhausted" };
       }
