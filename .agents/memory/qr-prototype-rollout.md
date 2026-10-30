@@ -9,6 +9,12 @@ The user says the central “내 방식 QR” service is being prepared for real
 
 **How to apply:** Keep approved integration tests in Development. Do not infer that mocked SDK tests prove a live central-service connection.
 
+The user's demonstration goal is to share direct DemoCoffee and Civil kiosk links with reviewers, let them apply the same existing G QR and experience real OpenAI layouts, and avoid Replit sign-in and search-engine indexing. This is a limited external demo, not general public launch.
+
+**Why:** The user stated this audience and scope while requesting a read-only Production-demo design; no Production implementation or deployment was authorized.
+
+**How to apply:** Treat any linked demo as externally accessible even if unlisted. Require explicit approval before Production AI routes, deployment visibility changes, credential changes, or host-project edits; keep review access and usage narrowly limited.
+
 The user currently reports DemoCoffee uses SDK v0.5.31 local source and Civil uses the v0.5.31 package; both reportedly pass fake schemaVersion 5 parsing. These host details are not independently verifiable from the central workspace. Real Production QR-to-host application is still failing and its failure stage is unlocalized.
 
 **Why:** The user supplied updated host-version and fake-v5 test results and explicitly asked not to assume an SDK-version mismatch; the Production symptom has not been tied to a specific stage.

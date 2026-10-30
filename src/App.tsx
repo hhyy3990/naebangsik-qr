@@ -320,18 +320,6 @@ function SettingsForm({
         </select>
       </div>
       <ToggleRow
-        title="순서대로 안내받기"
-        description="해야 할 일을 하나씩 차례대로 알려드려요."
-        checked={preferences.stepByStepGuidance}
-        onChange={(value) => onPreferenceChange("stepByStepGuidance", value)}
-      />
-      <ToggleRow
-        title="짧게 안내받기"
-        description="꼭 필요한 내용만 짧게 알려드려요."
-        checked={preferences.conciseGuidance}
-        onChange={(value) => onPreferenceChange("conciseGuidance", value)}
-      />
-      <ToggleRow
         title="천천히 안내받기"
         description="스마트 길잡이를 20초 동안 보여드려요."
         checked={preferences.slowGuidance}
