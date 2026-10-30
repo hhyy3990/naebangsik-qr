@@ -52,11 +52,77 @@ export type ProductionV2Registration = {
   authSecretEnv: string;
 };
 
+const demoCoffeeProductionAccessibility: UniversalLayoutV2Accessibility = {
+  textScale: "large",
+  buttonScale: "large",
+  contrast: "high",
+  viewportMode: { mode: "bottom", heightPercent: 70 },
+};
+
+const demoCoffeeProductionPolicy: UniversalLayoutV2Policy = {
+  hostId: "democoffee",
+  screenId: "cafe.menu",
+  structureVersion: "menu.v2",
+  allowedCapabilities: [],
+  capabilityRules: {},
+  components: [{
+    id: "menu.product-list",
+    kind: "repeated-card-list",
+    role: "ordered-menu-list",
+    order: 0,
+    itemCountRange: [5, 5],
+    allowedColumnsByViewport: { compact: [1], regular: [1, 2], wide: [1, 2] },
+    singleColumnForLargeText: true,
+    singleColumnForLargeButtons: true,
+    singleColumnForHighContrast: false,
+    singleColumnForBottomViewport: false,
+    operations: ["setColumns"],
+    optionGroups: [{
+      id: "arrangement",
+      options: [{
+        id: "single-column-list",
+        accessibility: {
+          textScale: ["large"],
+          buttonScale: ["large"],
+          contrast: ["high"],
+          viewportMode: ["bottom-70"],
+        },
+      }],
+    }],
+    minimumTouchTargetPx: 44,
+    protectedProperties: ["items", "order", "selection", "actions"],
+  }],
+};
+
+export const DEMO_COFFEE_PRODUCTION_V2_REGISTRATION: ProductionV2Registration = {
+  hostId: "democoffee",
+  screenId: "cafe.menu",
+  structureVersion: "menu.v2",
+  accessibility: demoCoffeeProductionAccessibility,
+  viewportClasses: ["compact", "regular"],
+  layoutCapabilities: [],
+  component: {
+    id: "menu.product-list",
+    kind: "repeated-card-list",
+    role: "ordered-menu-list",
+    order: 0,
+    itemCount: 5,
+    itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
+  },
+  optionGroupId: "arrangement",
+  optionId: "single-column-list",
+  policy: demoCoffeeProductionPolicy,
+  authSecretEnv: "DEMO_COFFEE_PROD_AI_TOKEN",
+};
+
 /**
- * Intentionally empty until production host source/runtime evidence is approved.
- * The Development registry and its snapshots are not production authority.
+ * Contains only candidates whose submitted hashes reproduce under the central
+ * v2 contract. Civil remains excluded because its exact physical viewport
+ * cannot be enforced by this contract.
  */
-export const PRODUCTION_V2_REGISTRY: readonly ProductionV2Registration[] = [];
+export const PRODUCTION_V2_REGISTRY: readonly ProductionV2Registration[] = [
+  DEMO_COFFEE_PRODUCTION_V2_REGISTRATION,
+];
 
 export type ReserveResult =
   | { kind: "reserved" }

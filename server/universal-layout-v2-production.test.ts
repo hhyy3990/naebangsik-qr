@@ -11,6 +11,7 @@ import {
 import { universalSha256 } from "./universal-layout-contract";
 import type { UniversalLayoutV2PlanProvider } from "./universal-layout-generator-v2";
 import {
+  DEMO_COFFEE_PRODUCTION_V2_REGISTRATION,
   PRODUCTION_V2_ROUTE,
   PRODUCTION_V2_REGISTRY,
   PRODUCTION_V2_MAX_CALLS,
@@ -176,6 +177,24 @@ const civilModel = createUniversalLayoutV2Model(civilPolicy, {
     itemOrderHash: civilItemOrderHash,
   }],
 });
+const civilProductionCandidatePolicy = structuredClone(CIVIL_KIOSK_HOST_DEVELOPMENT_V2_POLICY);
+civilProductionCandidatePolicy.hostId = "civil-kiosk-production";
+civilProductionCandidatePolicy.structureVersion = "civil-main-menu.production.v1";
+const civilProductionCandidateModel = createUniversalLayoutV2Model(civilProductionCandidatePolicy, {
+  viewportClass: "wide",
+  accessibility: {
+    textScale: "large",
+    buttonScale: "large",
+    contrast: "high",
+    viewportMode: { mode: "bottom", heightPercent: 70 },
+  },
+  layoutCapabilities: ["reserved-bottom-controls"],
+  componentState: [{
+    id: "civil.certificate-grid",
+    itemCount: 18,
+    itemOrderHash: "1f984cacde0e9014a80a73b90f15ea8a2ca3002ee5a1a65b737cd8fe11e9342c",
+  }],
+});
 const civilRegistration: ProductionV2Registration = {
   hostId: civilPolicy.hostId,
   screenId: civilPolicy.screenId,
@@ -196,6 +215,23 @@ const civilRegistration: ProductionV2Registration = {
   policy: civilPolicy,
   authSecretEnv: secretEnv,
 };
+
+const productionDemoItemOrderHash = universalSha256({
+  orderedItemIds: ["americano", "latte", "vanilla-latte", "cold-brew", "lemon-tea"],
+});
+
+function productionDemoModel(viewportClass: "compact" | "regular") {
+  return createUniversalLayoutV2Model(DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.policy, {
+    viewportClass,
+    accessibility: DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.accessibility,
+    layoutCapabilities: [],
+    componentState: [{
+      id: DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.component.id,
+      itemCount: DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.component.itemCount,
+      itemOrderHash: productionDemoItemOrderHash,
+    }],
+  });
+}
 
 function testApp(
   store: ProductionV2RequestStore,
@@ -220,7 +256,7 @@ function send(app: ReturnType<typeof testApp>, key: string, bodyModel = model) {
     .send({ model: bodyModel });
 }
 
-test("Production AI route is absent by default and unverified host scope fails closed", async () => {
+test("Production AI route is absent by default and unregistered host scope fails closed", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
   try {
@@ -233,10 +269,11 @@ test("Production AI route is absent by default and unverified host scope fails c
     });
     assert.equal((await request(app).post(PRODUCTION_V2_ROUTE).send({ model })).status, 404);
 
+    const unregisteredModel = { ...model, hostId: "unregistered-host" };
     const gatedApp = testApp(new MockStore(), provider(calls), PRODUCTION_V2_REGISTRY);
     const response = await request(gatedApp)
       .post(PRODUCTION_V2_ROUTE)
-      .send({ model });
+      .send({ model: unregisteredModel });
     assert.equal(response.status, 503);
     assert.equal(response.body.error, "PRODUCTION_HOST_UNVERIFIED");
     assert.equal(calls.count, 0);
@@ -245,6 +282,76 @@ test("Production AI route is absent by default and unverified host scope fails c
     else process.env.NODE_ENV = previousNodeEnv;
     if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
     else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    delete process.env[secretEnv];
+  }
+});
+
+test("Production DemoCoffee candidate hashes reproduce and registered models pass strict scope", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousGate = process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+  const previousHostToken = process.env.DEMO_COFFEE_PROD_AI_TOKEN;
+  const calls = { count: 0 };
+  try {
+    const store = new MockStore();
+    const app = testApp(store, provider(calls), PRODUCTION_V2_REGISTRY);
+    process.env.DEMO_COFFEE_PROD_AI_TOKEN = secretValue;
+    const compact = productionDemoModel("compact");
+    const regular = productionDemoModel("regular");
+    assert.equal(compact.structureHash, "c4e004d4df6fd7f4b0084b0b83569667239cd81284519d46108ad5921dd5cc4e");
+    assert.equal(compact.constraintHash, "8b5e0cd6b04a2f140758ca7ed6d6652bea0a592818c55317f9f39a96fbaed594");
+    assert.equal(regular.structureHash, compact.structureHash);
+    assert.equal(regular.constraintHash, "34f297aaeb54dfce542b9478a623b6b92420bd576e10e13766558bdc83b86e28");
+    assert.equal(compact.components[0].optionGroups?.[0].optionIds.join(","), "single-column-list");
+    assert.equal(regular.components[0].optionGroups?.[0].optionIds.join(","), "single-column-list");
+
+    const [compactResponse, regularResponse] = await Promise.all([
+      send(app, "demo-prod-candidate-compact-001", compact),
+      send(app, "demo-prod-candidate-regular-01", regular),
+    ]);
+    assert.equal(compactResponse.status, 200);
+    assert.equal(regularResponse.status, 200);
+    assert.equal(calls.count, 2);
+
+    const badProfile = createUniversalLayoutV2Model(DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.policy, {
+      viewportClass: "regular",
+      accessibility: {
+        textScale: "standard",
+        buttonScale: "standard",
+        contrast: "standard",
+        viewportMode: null,
+      },
+      layoutCapabilities: [],
+      componentState: [{
+        id: DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.component.id,
+        itemCount: DEMO_COFFEE_PRODUCTION_V2_REGISTRATION.component.itemCount,
+        itemOrderHash: productionDemoItemOrderHash,
+      }],
+    });
+    const badStructureHash = { ...compact, structureHash: "0".repeat(64) };
+    const badConstraintHash = { ...compact, constraintHash: "0".repeat(64) };
+    const civil = civilProductionCandidateModel;
+    assert.equal(civil.structureHash, "820cf03f6613da155cc79f39e0e36a8e99eda671be3b15cb7ec37f01b58ab343");
+    assert.equal(civil.constraintHash, "67db940ccb6a69a59f0d13cc902dfa610d4e24a929021efbc2270b7e5033d3e9");
+    const invalidModels = [
+      { model: badProfile, status: 403 },
+      { model: badStructureHash, status: 403 },
+      { model: badConstraintHash, status: 403 },
+      { model: { ...compact, hostId: "unregistered-host" }, status: 503 },
+      { model: civil, status: 503 },
+    ];
+    for (const [index, invalid] of invalidModels.entries()) {
+      const response = await send(app, `demo-prod-invalid-${String(index).padStart(2, "0")}`, invalid.model);
+      assert.equal(response.status, invalid.status);
+    }
+    assert.equal(calls.count, 2);
+    assert.equal(store.used, 2);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousGate === undefined) delete process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER;
+    else process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER = previousGate;
+    if (previousHostToken === undefined) delete process.env.DEMO_COFFEE_PROD_AI_TOKEN;
+    else process.env.DEMO_COFFEE_PROD_AI_TOKEN = previousHostToken;
     delete process.env[secretEnv];
   }
 });
