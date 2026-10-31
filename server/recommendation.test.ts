@@ -238,6 +238,41 @@ test("recommendation API retains its five-per-IP ten-minute request limit", asyn
   assert.equal(called, 5);
 });
 
+test("shared recommendation limit rejects before calling the recommendation provider", async () => {
+  let called = 0;
+  const app = createApp(
+    {} as Pool,
+    async () => {
+      called += 1;
+      return result;
+    },
+    { recommendationRateLimiter: { allow: async () => false } },
+  );
+
+  const response = await request(app).post("/api/recommendations").send(input);
+
+  assert.equal(response.status, 429);
+  assert.equal(response.headers["retry-after"], "600");
+  assert.equal(called, 0);
+});
+
+test("shared recommendation storage failure returns 503 without calling the provider", async () => {
+  let called = 0;
+  const app = createApp(
+    {} as Pool,
+    async () => {
+      called += 1;
+      return result;
+    },
+    { recommendationRateLimiter: { allow: async () => { throw new Error("database unavailable"); } } },
+  );
+
+  const response = await request(app).post("/api/recommendations").send(input);
+
+  assert.equal(response.status, 503);
+  assert.equal(called, 0);
+});
+
 test("API reports missing OpenAI configuration without attempting a provider call", async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;

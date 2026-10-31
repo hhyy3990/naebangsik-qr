@@ -12,6 +12,10 @@ import {
   type RecommendationGenerator,
 } from "./recommendation";
 import {
+  PostgresRecommendationRateLimiter,
+  type RecommendationRateLimiter,
+} from "./recommendation-rate-limit";
+import {
   validateLayoutPlanRequest,
   type LayoutPolicy,
   type LayoutPlanGenerator,
@@ -410,10 +414,14 @@ export function createApp(
     productionV2Registry?: readonly ProductionV2Registration[];
     maxRequestsPerHost?: number;
     profileCreateLimitPerIp?: number;
+    recommendationRateLimiter?: RecommendationRateLimiter;
   } = {},
 ) {
   const app = express();
   const recommendationAttempts = new Map<string, { count: number; resetAt: number }>();
+  const sharedRecommendationRateLimiter =
+    layoutOptions.recommendationRateLimiter ??
+    (process.env.NODE_ENV === "production" ? new PostgresRecommendationRateLimiter(pool) : undefined);
   const profileCreationAttempts = new Map<string, { count: number; resetAt: number }>();
   const profileCreateLimitPerIp = layoutOptions.profileCreateLimitPerIp ?? PROFILE_CREATE_LIMIT_PER_IP;
   const layoutAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -964,6 +972,18 @@ export function createApp(
     if (recommendationAttempts.size > 2_000) {
       for (const [key, value] of recommendationAttempts) {
         if (value.resetAt <= now) recommendationAttempts.delete(key);
+      }
+    }
+
+    if (sharedRecommendationRateLimiter) {
+      try {
+        const allowed = await sharedRecommendationRateLimiter.allow(clientKey);
+        if (!allowed) {
+          res.setHeader("Retry-After", "600");
+          return fail(res, 429, "요청이 잠시 많아요. 잠시 후 다시 시도해 주세요.");
+        }
+      } catch {
+        return fail(res, 503, "AI 추천 요청 제한을 확인할 수 없어 잠시 이용할 수 없어요.");
       }
     }
 
