@@ -20,13 +20,11 @@ type RecommendationResponse = {
 };
 
 type AgeGroupId = "under20" | "30to50" | "60s" | "70s" | "80plus";
-type LanguageId = "ko" | "zh" | "vi" | "en" | "th" | "uz" | "ja";
 type VisualIssueId = "smallText" | "lowClarity" | "smallButtons" | "topOutOfReach" | "unsureNext";
 type UsageIssueId = "difficultWords" | "unsureSteps" | "needsMoreTime" | "prefersVoice";
 
 type FormAnswers = {
   ageGroup: AgeGroupId | "";
-  preferredLanguage: LanguageId | "";
   visualIssues: VisualIssueId[];
   usageIssues: UsageIssueId[];
   scrollGuidance: "" | "yes" | "no";
@@ -40,15 +38,6 @@ const ageOptions: { label: string; value: AgeGroupId | "" }[] = [
   { label: "70대", value: "70s" },
   { label: "80대 이상", value: "80plus" },
   { label: "선택하지 않을래요", value: "" },
-];
-const languageOptions: { label: string; value: LanguageId }[] = [
-  { label: "한국어", value: "ko" },
-  { label: "中文", value: "zh" },
-  { label: "Tiếng Việt", value: "vi" },
-  { label: "English", value: "en" },
-  { label: "ภาษาไทย", value: "th" },
-  { label: "Oʻzbekcha", value: "uz" },
-  { label: "日本語", value: "ja" },
 ];
 const visualOptions = [
   { label: "작은 글씨가 잘 안 보여요.", value: "smallText" as const },
@@ -66,7 +55,6 @@ const usageOptions = [
 
 const emptyAnswers: FormAnswers = {
   ageGroup: "",
-  preferredLanguage: "",
   visualIssues: [],
   usageIssues: [],
   scrollGuidance: "",
@@ -164,7 +152,7 @@ export default function AIRecommendationFlow({
         signal: controller.signal,
         body: JSON.stringify({
           ageGroup: answers.ageGroup || null,
-          preferredLanguage: answers.preferredLanguage || null,
+          preferredLanguage: currentSettings.language,
           visualIssues: answers.visualIssues,
           usageIssues: answers.usageIssues,
           scrollGuidance: answers.scrollGuidance === "yes" ? true : answers.scrollGuidance === "no" ? false : null,
@@ -304,31 +292,7 @@ export default function AIRecommendationFlow({
           </fieldset>
 
           <fieldset className="air-question">
-            <legend>② 어떤 언어로 안내받고 싶으신가요?</legend>
-            <p className="air-help">
-              이 외의 언어는 추후 추가할 예정입니다. 언어는 QR 설정에 저장돼요.
-            </p>
-            <div className="air-option-grid air-language-options">
-              {languageOptions.map((option) => (
-                <label className="air-choice" key={option.value}>
-                  <input
-                    type="radio"
-                    name="air-language"
-                    value={option.value}
-                    checked={answers.preferredLanguage === option.value}
-                    onChange={() =>
-                      setAnswers((current) => ({ ...current, preferredLanguage: option.value }))
-                    }
-                  />
-                  <span className="air-choice-indicator" aria-hidden="true" />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset className="air-question">
-            <legend>③ 키오스크 화면을 보거나 누를 때 어떤 점이 불편한가요?</legend>
+            <legend>② 키오스크 화면을 보거나 누를 때 어떤 점이 불편한가요?</legend>
             <p className="air-help">해당하는 내용을 모두 골라 주세요.</p>
             <div className="air-check-list">
               {visualOptions.map((option) => (
@@ -351,7 +315,7 @@ export default function AIRecommendationFlow({
           </fieldset>
 
           <fieldset className="air-question">
-            <legend>④ 키오스크를 사용할 때 어떤 점이 어렵거나 불편한가요?</legend>
+            <legend>③ 키오스크를 사용할 때 어떤 점이 어렵거나 불편한가요?</legend>
             <p className="air-help">해당하는 내용을 모두 골라 주세요.</p>
             <div className="air-check-list">
               {usageOptions.map((option) => (
@@ -374,7 +338,7 @@ export default function AIRecommendationFlow({
           </fieldset>
 
           <fieldset className="air-question">
-            <legend>⑤ 화면 아래에 더 볼 내용이 있다는 안내가 필요하신가요?</legend>
+            <legend>④ 화면 아래에 더 볼 내용이 있다는 안내가 필요하신가요?</legend>
             <div className="air-option-grid">
               {[
                 { label: "네, 필요해요.", value: "yes" as const },

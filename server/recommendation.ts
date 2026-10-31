@@ -134,14 +134,41 @@ function explicitTextSizePreference(freeText: string | null): ProfilePreferences
   return null;
 }
 
-function textSizeReason(textSize: ProfilePreferences["textSize"]) {
-  if (textSize === "extraLarge") {
-    return "작은 글씨를 읽기 어렵다고 하셔서 글씨를 매우 크게 설정했어요. 미리보기에서 편한 크기인지 확인해 보세요.";
+function reasonForSource(
+  source: (typeof reasonSourceIds)[number],
+  preferences: ProfilePreferences,
+): string {
+  switch (source) {
+    case "smallText":
+      return `작은 글씨가 불편하다고 하셔서 글씨 크기를 ${
+        preferences.textSize === "extraLarge" ? "매우 크게" :
+        preferences.textSize === "large" ? "크게" : "기본 크기로"
+      } 설정했어요.`;
+    case "lowClarity":
+      return `선명도가 불편하다고 하셔서 대비를 ${preferences.contrast === "high" ? "높게" : "기본으로"} 설정했어요.`;
+    case "smallButtons":
+      return `버튼이 작아 누르기 어렵다고 하셔서 버튼 크기를 ${preferences.buttonSize === "large" ? "크게" : "기본으로"} 설정했어요.`;
+    case "topOutOfReach":
+      return preferences.viewportMode
+        ? `화면 위쪽까지 손이 닿기 어렵다고 하셔서 화면을 아래쪽 ${preferences.viewportMode.heightPercent}% 영역에 맞췄어요.`
+        : "화면 위쪽이 불편하다고 하셨지만 화면 배치 설정은 기본으로 유지했어요.";
+    case "unsureNext":
+      return `다음에 무엇을 눌러야 할지 헷갈린다고 하셔서 스마트 길잡이를 ${preferences.smartGuide ? "켰어요" : "켜지 않았어요"}.`;
+    case "difficultWords":
+      return `어려운 단어가 불편하다고 하셔서 쉬운 말 안내를 ${preferences.easyLanguage ? "켰어요" : "켜지 않았어요"}.`;
+    case "unsureSteps":
+      return `무엇부터 해야 할지 헷갈린다고 하셔서 순서대로 안내하기를 ${preferences.stepByStepGuidance ? "켰어요" : "켜지 않았어요"}.`;
+    case "needsMoreTime":
+      return `내용을 이해하는 데 시간이 더 필요하다고 하셔서 천천히 안내받기를 ${preferences.slowGuidance ? "켰어요" : "켜지 않았어요"}.`;
+    case "prefersVoice":
+      return `말로 안내받는 편이 좋다고 하셔서 음성 안내를 ${preferences.voiceGuidance ? "켰어요" : "켜지 않았어요"}.`;
+    case "scrollGuidance":
+      return `화면 아래 내용 안내를 ${preferences.scrollGuidance ? "켰어요" : "켜지 않았어요"}.`;
+    case "freeText":
+      return "적어 주신 내용을 고려했어요. 추천 설정은 미리보기에서 확인해 주세요.";
+    case "noSpecificPreference":
+      return "선택하신 내용을 바탕으로 설정을 추천했어요. 미리보기에서 확인해 주세요.";
   }
-  if (textSize === "large") {
-    return "큰 글씨가 더 편하다는 말씀을 고려해 글씨를 크게 설정했어요. 미리보기에서 확인해 보세요.";
-  }
-  return "큰 글씨가 부담스럽다는 말씀을 고려해 기본 글씨 크기를 유지했어요. 미리보기에서 확인해 보세요.";
 }
 
 export function validateRecommendation(input: unknown): RecommendationInput {
@@ -181,13 +208,9 @@ export function parseRecommendationOutput(value: unknown, input: RecommendationI
     ...(input.usageIssues.includes("needsMoreTime") ? { slowGuidance: true } : {}),
     scrollGuidance: input.scrollGuidance === true,
   };
-  const reasons = parsed.reasons.map(({ text }) => text);
-  if (textSizeOverride) {
-    const reasonIndex = parsed.reasons.findIndex(({ basedOn }) =>
-      explicitPreference ? basedOn.includes("freeText") : basedOn.includes("smallText"),
-    );
-    reasons[reasonIndex >= 0 ? reasonIndex : 0] = textSizeReason(textSizeOverride);
-  }
+  const reasons = parsed.reasons.map(({ basedOn }) =>
+    basedOn.map((source) => reasonForSource(source, preferences)).join(" "),
+  );
   return { preferences, reasons };
 }
 

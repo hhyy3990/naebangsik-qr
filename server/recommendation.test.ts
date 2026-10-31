@@ -38,8 +38,8 @@ const result: RecommendationResult = {
     viewportMode: { mode: "bottom", heightPercent: 70 },
   },
   reasons: [
-    "작은 글씨와 위쪽 버튼이 불편하다고 하셔서 글씨를 키우고 조작 영역을 아래로 옮겼어요.",
-    "어려운 단어가 많다고 하셔서 쉬운 말 안내를 켰어요.",
+    "작은 글씨가 불편하다고 하셔서 글씨 크기를 크게 설정했어요. 화면 위쪽까지 손이 닿기 어렵다고 하셔서 화면을 아래쪽 70% 영역에 맞췄어요.",
+    "어려운 단어가 불편하다고 하셔서 쉬운 말 안내를 켰어요.",
   ],
 };
 const modelResult = {
@@ -107,7 +107,31 @@ test("80대 이상과 작은 글씨 불편에는 extraLarge를 적용하고 이�
     ],
   }, { ...input80, freeText: "큰 글씨는 오히려 불편해요." });
   assert.equal(conflict.preferences.textSize, "standard");
-  assert.ok(conflict.reasons.some((reason) => /기본 글씨 크기/.test(reason)));
+  assert.ok(conflict.reasons.some((reason) => /기본 크기/.test(reason)));
+});
+
+test("작은 버튼 추천 이유는 입력을 바꾸지 않고 최종 버튼 크기와 일치시킨다", () => {
+  const buttonInput: RecommendationInput = {
+    ageGroup: null,
+    preferredLanguage: "ko",
+    visualIssues: ["smallButtons"],
+    usageIssues: ["difficultWords"],
+    scrollGuidance: null,
+    freeText: null,
+  };
+  const output = {
+    ...modelResult,
+    preferences: { ...result.preferences, buttonSize: "standard" as const },
+    reasons: [
+      { text: "작은 버튼이 불편하여 일반 크기를 유지합니다.", basedOn: ["smallButtons"] },
+      { text: "선택한 내용을 반영했어요.", basedOn: ["difficultWords"] },
+    ],
+  };
+
+  const recommendation = parseRecommendationOutput(output, buttonInput);
+  assert.equal(recommendation.preferences.buttonSize, "standard");
+  assert.match(recommendation.reasons[0], /버튼 크기를 기본으로 설정/);
+  assert.doesNotMatch(recommendation.reasons[0], /크게 설정/);
 });
 
 test("AI recommendation saves selected language and distinct guidance preferences", () => {

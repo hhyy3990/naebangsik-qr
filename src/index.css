@@ -1733,10 +1733,6 @@ svg {
   gap: 8px;
 }
 
-.air-language-options {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .air-choice {
   position: relative;
   display: flex;
@@ -2081,8 +2077,7 @@ svg {
     font-size: 13px;
   }
 
-  .air-option-grid,
-  .air-language-options {
+  .air-option-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2108,8 +2103,7 @@ svg {
     padding-left: 13px;
   }
 
-  .air-option-grid,
-  .air-language-options {
+  .air-option-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
