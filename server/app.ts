@@ -139,6 +139,9 @@ const rotatePayloadSchema = z.object({
   expectedToken: z.string().min(20).max(128).optional(),
 }).strict();
 
+const PROFILE_CREATE_LIMIT_PER_IP = 10;
+const PROFILE_CREATE_WINDOW_MS = 10 * 60_000;
+const PROFILE_CREATE_BODY_LIMIT_BYTES = 4 * 1024;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const createToken = (prefix: string) => `${prefix}${randomBytes(32).toString("base64url")}`;
 const storedPreferences = (value: unknown) => {
@@ -406,10 +409,13 @@ export function createApp(
     productionV2RequestStore?: ProductionV2RequestStore;
     productionV2Registry?: readonly ProductionV2Registration[];
     maxRequestsPerHost?: number;
+    profileCreateLimitPerIp?: number;
   } = {},
 ) {
   const app = express();
   const recommendationAttempts = new Map<string, { count: number; resetAt: number }>();
+  const profileCreationAttempts = new Map<string, { count: number; resetAt: number }>();
+  const profileCreateLimitPerIp = layoutOptions.profileCreateLimitPerIp ?? PROFILE_CREATE_LIMIT_PER_IP;
   const layoutAttempts = new Map<string, { count: number; resetAt: number }>();
   const layoutPlanCache = new Map<string, { expiresAt: number; result: Promise<unknown> }>();
   const layoutPolicies = layoutOptions.policies ?? [];
@@ -479,7 +485,23 @@ export function createApp(
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
-  app.use(express.json({ limit: "16kb" }));
+  app.use(express.json({
+    limit: "16kb",
+    verify: (req, _res, body) => {
+      const path = (req as Request).path;
+      if (
+        req.method === "POST" &&
+        path === "/api/profiles" &&
+        body.byteLength > PROFILE_CREATE_BODY_LIMIT_BYTES
+      ) {
+        const error = Object.assign(new Error("Profile creation request is too large"), {
+          type: "entity.too.large",
+          status: 413,
+        });
+        throw error;
+      }
+    },
+  }));
   if (
     process.env.NODE_ENV === "production" &&
     process.env.UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER === "true"
@@ -1202,6 +1224,24 @@ export function createApp(
   }));
 
   app.post("/api/profiles", asyncRoute(async (req, res) => {
+    const now = Date.now();
+    const clientKey = hash(req.ip || "unknown");
+    const attempts = profileCreationAttempts.get(clientKey);
+    if (attempts && attempts.resetAt > now && attempts.count >= profileCreateLimitPerIp) {
+      res.setHeader("Retry-After", "600");
+      return fail(res, 429, "QR 생성 요청이 잠시 많아요. 잠시 후 다시 시도해 주세요.");
+    }
+    if (!attempts || attempts.resetAt <= now) {
+      profileCreationAttempts.set(clientKey, { count: 1, resetAt: now + PROFILE_CREATE_WINDOW_MS });
+    } else {
+      attempts.count += 1;
+    }
+    if (profileCreationAttempts.size > 2_000) {
+      for (const [key, value] of profileCreationAttempts) {
+        if (value.resetAt <= now) profileCreationAttempts.delete(key);
+      }
+    }
+
     const parsed = settingsPayloadSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, "접근성 설정을 확인해 주세요.");
     const preferences = { ...parsed.data.preferences, scrollGuidance: parsed.data.preferences.scrollGuidance ?? false };

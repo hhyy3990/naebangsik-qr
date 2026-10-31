@@ -11,7 +11,7 @@ if (!process.env.DATABASE_URL) {
 }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const app = createApp(pool);
+const app = createApp(pool, undefined, { profileCreateLimitPerIp: 100 });
 const testHeader = { "X-Test-Mode": "true" };
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 const testProfileIds: string[] = [];

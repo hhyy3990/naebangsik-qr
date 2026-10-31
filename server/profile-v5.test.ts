@@ -135,3 +135,32 @@ test("v5 profile APIs default omitted scroll guidance off, preserve edits, and n
   assert.equal(record.schema_version, 4);
   assert.equal(record.preferences.scrollGuidance, undefined);
 });
+
+test("profile creation is limited to ten requests per IP in ten minutes", async () => {
+  const { pool, profiles } = makeMemoryPool();
+  const app = createApp(pool);
+  const payload = { schemaVersion: PROFILE_SCHEMA_VERSION, preferences };
+
+  for (let i = 0; i < 10; i += 1) {
+    const response = await request(app).post("/api/profiles").send(payload);
+    assert.equal(response.status, 201);
+  }
+  const limited = await request(app).post("/api/profiles").send(payload);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers["retry-after"], "600");
+  assert.equal(profiles.size, 10);
+});
+
+test("profile creation rejects request bodies larger than four kilobytes", async () => {
+  const { pool, profiles } = makeMemoryPool();
+  const app = createApp(pool);
+  const oversizedJson = JSON.stringify({ extra: "x".repeat(5 * 1024) });
+
+  const response = await request(app)
+    .post("/api/profiles")
+    .set("Content-Type", "application/json")
+    .send(oversizedJson);
+
+  assert.equal(response.status, 413);
+  assert.equal(profiles.size, 0);
+});

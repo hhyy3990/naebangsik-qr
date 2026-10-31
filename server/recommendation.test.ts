@@ -221,6 +221,23 @@ test("recommendation API returns validated results and rejects sensitive input",
   assert.equal(called, 1);
 });
 
+test("recommendation API retains its five-per-IP ten-minute request limit", async () => {
+  let called = 0;
+  const app = createApp({} as Pool, async () => {
+    called += 1;
+    return result;
+  });
+
+  for (let i = 0; i < 5; i += 1) {
+    const response = await request(app).post("/api/recommendations").send(input);
+    assert.equal(response.status, 200);
+  }
+  const limited = await request(app).post("/api/recommendations").send(input);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers["retry-after"], "600");
+  assert.equal(called, 5);
+});
+
 test("API reports missing OpenAI configuration without attempting a provider call", async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
