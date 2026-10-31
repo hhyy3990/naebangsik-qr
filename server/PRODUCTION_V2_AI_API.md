@@ -5,7 +5,7 @@
 This is a separate Production-only server-to-server endpoint. It is not registered
 unless both `NODE_ENV=production` and
 `UNIVERSAL_LAYOUT_PROD_V2_OPENAI_PROVIDER=true`. The gate is not configured by
-this change and must remain OFF until separate approval.
+application code; it is controlled by the Production environment.
 
 The Production registration list contains the DemoCoffee and Civil candidates.
 Both supplied item IDs and hashes reproduce under their central strict v2 model
@@ -35,10 +35,20 @@ are not application credentials and are not reused here.
 
 Each Production registration defines its own exact accessibility tuple, allowed
 `viewportClass` values, capabilities, component identity/order/count/item hash,
-option group, and single option ID. DemoCoffee's provided compact and regular
-constraint hashes both reproduce with the tuple large text, large buttons, high
-contrast, and bottom viewport at 70%. Its item IDs produce the supplied item
-order hash, and its generated model exposes only `single-column-list`.
+option group, and allowed option IDs. DemoCoffee's compact and regular models
+use large text, large buttons, high contrast, and bottom viewport at 70%. Both
+expose option IDs in canonical order `["large-card-row", "single-column-list"]`;
+each is constrained to that same accessibility tuple. The layout option is a
+host-defined preset ID; the central service does not infer viewport height,
+scroll burden, or DOM geometry.
+The component structure hash and item-order hash are unchanged. The constraint
+hash changes because the model now advertises both option IDs. A host must send
+the matching new constraint hash and option list. Plans selecting the existing
+`single-column-list` remain valid, while the response schema also allows
+`large-card-row`. The central expected constraint hashes are
+`f15b39448657ea7ff40a7ca3976ae1705eed011f3b336ef0fc3841a6ad2e0f16` for
+`compact` and `30230ce0e515bb85aab7b6571de080b10eeb0153bda7e23aa990181f0c441843`
+for `regular`.
 This confirms reproduction by the central model generator; the host repositories
 were not available for source-level review in this workspace.
 

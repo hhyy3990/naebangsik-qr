@@ -50,7 +50,7 @@ const registration: ProductionV2Registration = {
     itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
   },
   optionGroupId: "arrangement",
-  optionId: "single-column-list",
+  optionIds: ["single-column-list"],
   policy: DEMO_COFFEE_HOST_DEVELOPMENT_V2_POLICY,
   authSecretEnv: secretEnv,
 };
@@ -210,7 +210,7 @@ const civilRegistration: ProductionV2Registration = {
     itemOrderHash: civilItemOrderHash,
   },
   optionGroupId: "arrangement",
-  optionId: "reserved-safe-list",
+  optionIds: ["reserved-safe-list"],
   policy: civilPolicy,
   authSecretEnv: secretEnv,
 };
@@ -297,11 +297,11 @@ test("Production DemoCoffee candidate hashes reproduce and registered models pas
     const compact = productionDemoModel("compact");
     const regular = productionDemoModel("regular");
     assert.equal(compact.structureHash, "c4e004d4df6fd7f4b0084b0b83569667239cd81284519d46108ad5921dd5cc4e");
-    assert.equal(compact.constraintHash, "8b5e0cd6b04a2f140758ca7ed6d6652bea0a592818c55317f9f39a96fbaed594");
+    assert.equal(compact.constraintHash, "f15b39448657ea7ff40a7ca3976ae1705eed011f3b336ef0fc3841a6ad2e0f16");
     assert.equal(regular.structureHash, compact.structureHash);
-    assert.equal(regular.constraintHash, "34f297aaeb54dfce542b9478a623b6b92420bd576e10e13766558bdc83b86e28");
-    assert.equal(compact.components[0].optionGroups?.[0].optionIds.join(","), "single-column-list");
-    assert.equal(regular.components[0].optionGroups?.[0].optionIds.join(","), "single-column-list");
+    assert.equal(regular.constraintHash, "30230ce0e515bb85aab7b6571de080b10eeb0153bda7e23aa990181f0c441843");
+    assert.deepEqual(compact.components[0].optionGroups?.[0].optionIds, ["large-card-row", "single-column-list"]);
+    assert.deepEqual(regular.components[0].optionGroups?.[0].optionIds, ["large-card-row", "single-column-list"]);
 
     const [compactResponse, regularResponse] = await Promise.all([
       send(app, "demo-prod-candidate-compact-001", compact),
@@ -348,6 +348,74 @@ test("Production DemoCoffee candidate hashes reproduce and registered models pas
     if (previousHostToken === undefined) delete process.env.DEMO_COFFEE_PROD_AI_TOKEN;
     else process.env.DEMO_COFFEE_PROD_AI_TOKEN = previousHostToken;
     delete process.env[secretEnv];
+  }
+});
+
+test("DemoCoffee G sends both registered options and accepts either plan at compact and regular viewports", async () => {
+  const previousToken = process.env.DEMO_COFFEE_PROD_AI_TOKEN;
+  const calls = { count: 0 };
+  const observations: { optionIds: string[][]; schemas: unknown[] } = { optionIds: [], schemas: [] };
+  const chosenOptions = ["large-card-row", "single-column-list", "large-card-row", "single-column-list"];
+  let choiceIndex = 0;
+  const planProvider: UniversalLayoutV2PlanProvider = {
+    async generate({ payload, responseSchema }) {
+      calls.count += 1;
+      observations.optionIds.push([...payload.components[0].optionGroups![0].optionIds]);
+      observations.schemas.push(responseSchema);
+      const component = payload.components[0];
+      return {
+        schemaVersion: payload.schemaVersion,
+        contractVersion: payload.contractVersion,
+        hostId: payload.hostId,
+        screenId: payload.screenId,
+        structureVersion: payload.structureVersion,
+        structureHash: payload.structureHash,
+        constraintHash: payload.constraintHash,
+        viewportClass: payload.viewportClass,
+        operations: [{
+          type: "selectLayoutOption",
+          targetId: component.id,
+          groupId: component.optionGroups![0].id,
+          optionId: chosenOptions[choiceIndex++],
+        }],
+      };
+    },
+  };
+  try {
+    process.env.DEMO_COFFEE_PROD_AI_TOKEN = secretValue;
+    const store = new MockStore();
+    const app = testApp(store, planProvider, PRODUCTION_V2_REGISTRY);
+    const viewports = ["compact", "regular"] as const;
+    const results: Array<{ viewport: string; option: string }> = [];
+    for (const viewport of viewports) {
+      for (const expectedOption of ["large-card-row", "single-column-list"]) {
+        const response = await send(
+          app,
+          `demo-layout-${viewport}-${expectedOption}-001`,
+          productionDemoModel(viewport),
+        );
+        assert.equal(response.status, 200);
+        assert.equal(response.body.operations[0].optionId, expectedOption);
+        results.push({ viewport, option: response.body.operations[0].optionId });
+      }
+    }
+
+    const expectedOptions = ["large-card-row", "single-column-list"];
+    assert.deepEqual(observations.optionIds, Array(4).fill(expectedOptions));
+    for (const schema of observations.schemas) {
+      assert.ok(JSON.stringify(schema).includes('"enum":["large-card-row","single-column-list"]'));
+    }
+    assert.equal(calls.count, 4);
+    assert.equal(store.used, 4);
+    assert.deepEqual(results, [
+      { viewport: "compact", option: "large-card-row" },
+      { viewport: "compact", option: "single-column-list" },
+      { viewport: "regular", option: "large-card-row" },
+      { viewport: "regular", option: "single-column-list" },
+    ]);
+  } finally {
+    if (previousToken === undefined) delete process.env.DEMO_COFFEE_PROD_AI_TOKEN;
+    else process.env.DEMO_COFFEE_PROD_AI_TOKEN = previousToken;
   }
 });
 
@@ -507,7 +575,7 @@ test("Host-specific invalid profiles, viewports, capabilities, component data, o
             contrast: "standard",
             viewportMode: null,
           },
-          optionId: "single-column-list",
+          optionIds: ["single-column-list"],
         },
         body: wrongProfile,
       },
@@ -586,7 +654,7 @@ test("Civil host-specific invalid G, viewport, option, capability, component, an
       { name: "civil-constraint-hash", body: { ...civilModel, constraintHash: "0".repeat(64) } },
       {
         name: "civil-option",
-        reg: { ...civilRegistration, optionId: "compact-grid" },
+        reg: { ...civilRegistration, optionIds: ["compact-grid"] },
         body: civilModel,
       },
     ];

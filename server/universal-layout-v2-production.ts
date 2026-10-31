@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import {
-  createUniversalLayoutV2SingleOptionPlanJsonSchema,
+  createUniversalLayoutV2OptionGroupPlanJsonSchema,
   generateUniversalLayoutV2Plan,
   UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
   UniversalLayoutV2GenerationError,
@@ -47,7 +47,7 @@ export type ProductionV2Registration = {
     itemOrderHash: string;
   };
   optionGroupId: string;
-  optionId: string;
+  optionIds: readonly string[];
   policy: UniversalLayoutV2Policy;
   authSecretEnv: string;
 };
@@ -81,6 +81,14 @@ const demoCoffeeProductionPolicy: UniversalLayoutV2Policy = {
       id: "arrangement",
       options: [{
         id: "single-column-list",
+        accessibility: {
+          textScale: ["large"],
+          buttonScale: ["large"],
+          contrast: ["high"],
+          viewportMode: ["bottom-70"],
+        },
+      }, {
+        id: "large-card-row",
         accessibility: {
           textScale: ["large"],
           buttonScale: ["large"],
@@ -158,7 +166,7 @@ export const DEMO_COFFEE_PRODUCTION_V2_REGISTRATION: ProductionV2Registration = 
     itemOrderHash: "af0c4a1b243d46755fc31fa279e936f612bf2b3914b293d67e585d6aa5fb091a",
   },
   optionGroupId: "arrangement",
-  optionId: "single-column-list",
+  optionIds: ["large-card-row", "single-column-list"],
   policy: demoCoffeeProductionPolicy,
   authSecretEnv: "DEMO_COFFEE_PROD_AI_TOKEN",
 };
@@ -179,7 +187,7 @@ export const CIVIL_PRODUCTION_V2_REGISTRATION: ProductionV2Registration = {
     itemOrderHash: "1f984cacde0e9014a80a73b90f15ea8a2ca3002ee5a1a65b737cd8fe11e9342c",
   },
   optionGroupId: "arrangement",
-  optionId: "reserved-safe-list",
+  optionIds: ["reserved-safe-list"],
   policy: civilProductionPolicy,
   authSecretEnv: "CIVIL_PROD_AI_TOKEN",
 };
@@ -454,8 +462,7 @@ export function registerProductionV2Route(
         component.itemOrderHash !== registration.component.itemOrderHash ||
         component.optionGroups?.length !== 1 ||
         component.optionGroups[0].id !== registration.optionGroupId ||
-        component.optionGroups[0].optionIds.length !== 1 ||
-        component.optionGroups[0].optionIds[0] !== registration.optionId
+        !sameValues(component.optionGroups[0].optionIds, registration.optionIds)
       ) {
         throw new Error("PRODUCTION_SCOPE_REJECTED");
       }
@@ -532,10 +539,10 @@ export function registerProductionV2Route(
         model,
         policies: [registration.policy],
         provider,
-        responseSchema: createUniversalLayoutV2SingleOptionPlanJsonSchema(
+        responseSchema: createUniversalLayoutV2OptionGroupPlanJsonSchema(
           model,
           registration.component.id,
-          registration.optionId,
+          registration.optionGroupId,
         ),
         systemInstruction: UNIVERSAL_LAYOUT_V2_SINGLE_OPTION_SYSTEM_INSTRUCTION,
       });
@@ -544,7 +551,7 @@ export function registerProductionV2Route(
         validatedPlan.operations.length !== 1 ||
         validatedPlan.operations[0].type !== "selectLayoutOption" ||
         validatedPlan.operations[0].targetId !== registration.component.id ||
-        validatedPlan.operations[0].optionId !== registration.optionId ||
+        !registration.optionIds.includes(validatedPlan.operations[0].optionId) ||
         validatedPlan.operations[0].groupId !== group.id
       ) {
         throw new Error("PRODUCTION_PLAN_SCOPE_REJECTED");

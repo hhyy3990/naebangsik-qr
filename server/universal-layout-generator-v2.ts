@@ -81,13 +81,34 @@ export function createUniversalLayoutV2SingleOptionPlanJsonSchema(
   if (matchingGroups.length !== 1) {
     throw new Error("SINGLE_OPTION_SCHEMA_SELECTION_NOT_REGISTERED");
   }
-  return createPlanJsonSchema(model, 1, { targetId, groupId: matchingGroups[0].id, optionId });
+  return createPlanJsonSchema(model, 1, {
+    targetId,
+    groupId: matchingGroups[0].id,
+    optionIds: [optionId],
+  });
+}
+
+export function createUniversalLayoutV2OptionGroupPlanJsonSchema(
+  model: UniversalLayoutV2Model,
+  targetId: string,
+  groupId: string,
+): UniversalLayoutV2JsonSchema {
+  const component = model.components.find((candidate) => candidate.id === targetId);
+  const group = component?.optionGroups?.find((candidate) => candidate.id === groupId);
+  if (!group?.optionIds.length) {
+    throw new Error("OPTION_GROUP_SCHEMA_SELECTION_NOT_REGISTERED");
+  }
+  return createPlanJsonSchema(model, 1, {
+    targetId,
+    groupId,
+    optionIds: [...group.optionIds],
+  });
 }
 
 function createPlanJsonSchema(
   model: UniversalLayoutV2Model,
   maxOperations: number,
-  selectedOption?: { targetId: string; groupId: string; optionId: string },
+  selectedOption?: { targetId: string; groupId: string; optionIds: readonly string[] },
 ): UniversalLayoutV2JsonSchema {
   const operationVariants = model.components.flatMap((component) => {
     const variants: Record<string, unknown>[] = [];
@@ -119,7 +140,7 @@ function createPlanJsonSchema(
             groupId: { type: "string", const: group.id },
             optionId: {
               type: "string",
-              enum: selectedOption ? [selectedOption.optionId] : [...group.optionIds],
+              enum: selectedOption ? [...selectedOption.optionIds] : [...group.optionIds],
             },
           },
         });
