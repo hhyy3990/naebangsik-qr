@@ -303,22 +303,6 @@ function SettingsForm({
         checked={preferences.voiceGuidance}
         onChange={(value) => onPreferenceChange("voiceGuidance", value)}
       />
-      <div className="setting-row">
-        <div className="setting-info">
-          <strong>안내 언어</strong>
-          <span>국적이 아니라 편하게 사용하는 언어를 골라 주세요.</span>
-        </div>
-        <select
-          className="select-control"
-          aria-label="안내 언어"
-          value={preferences.language}
-          onChange={(event) => onPreferenceChange("language", event.target.value as ProfilePreferences["language"])}
-        >
-          {PROFILE_LANGUAGES.map((language) => (
-            <option key={language} value={language}>{languageLabels[language]}</option>
-          ))}
-        </select>
-      </div>
       <ToggleRow
         title="천천히 안내받기"
         description="스마트 길잡이를 20초 동안 보여드려요."
